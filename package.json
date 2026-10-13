@@ -2,13 +2,16 @@
   "name": "joget-analyzer-web",
   "version": "1.0.0",
   "private": true,
-  "description": "Joget .jwa 应用分析 Web 工具：事实靠解析（Node.js），输出设计书 / 影响分析 / 调用关系图 / RAG 分块",
+  "description": "Joget .jwa アプリ解析 Web ツール：事実は解析で（Node.js）、設計書 / 影響分析 / 呼び出し関係図 / RAG チャンクを出力",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite build && node server.js"
+    "preview": "vite build && node server.js",
+    "verify:lang": "python3 verify/check_japanese_only.py",
+    "test:ui": "node test-ui.mjs",
+    "test:engine": "node test-engine.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

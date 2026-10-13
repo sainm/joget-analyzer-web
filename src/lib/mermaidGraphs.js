@@ -1,34 +1,20 @@
 /**
- * 由分析结果生成 Mermaid 图源码（纯前端，无需再跑解析）。
- * 所有生成器都做了标识符清洗，避免 Mermaid 语法报错。
- * 图内文案（节点名、空态提示）跟随界面语言，由 lang 参数控制。
+ * 解析結果から Mermaid のソースコードを生成する（フロントエンドのみ、再解析は不要）。
+ * すべての生成器で識別子をサニタイズし、Mermaid の構文エラーを防ぐ。
+ * 図中の文言は日本語で固定。業務上の名詞はすべてデータ由来。
  */
 
-/** 图内固定文案（只放真正写死的那几个词，业务名词一律来自数据） */
-const GL = {
-  zh: {
-    noFlow: '未解析到流程定义（package.xpdl）',
-    processPrefix: '流程：',
-    start: '开始',
-    end: '结束',
-    noImpact: '无影响数据',
-    noCall: '未上传插件源码，无调用关系图',
-    noMenu: '无菜单',
-    uncategorized: '未分类',
-  },
-  ja: {
-    noFlow: 'プロセス定義（package.xpdl）が見つかりません',
-    processPrefix: 'プロセス：',
-    start: '開始',
-    end: '終了',
-    noImpact: '影響データなし',
-    noCall: 'プラグインソース未提供のため、呼び出し関係図はありません',
-    noMenu: 'メニューなし',
-    uncategorized: '未分類',
-  },
+/** 図中の固定文言（本当にハードコードする語のみ。業務名詞はデータから取得する） */
+const L = {
+  noFlow: 'プロセス定義（package.xpdl）が見つかりません',
+  processPrefix: 'プロセス：',
+  start: '開始',
+  end: '終了',
+  noImpact: '影響データなし',
+  noCall: 'プラグインソース未提供のため、呼び出し関係図はありません',
+  noMenu: 'メニューなし',
+  uncategorized: '未分類',
 };
-
-const gl = (lang) => GL[lang === 'ja' ? 'ja' : 'zh'];
 
 const esc = (s) =>
   String(s == null ? '' : s)
@@ -41,9 +27,8 @@ const esc = (s) =>
 
 const sid = (s) => 'n' + String(s == null ? '' : s).replace(/[^\w]/g, '_');
 
-/* ── 1. XPDL 流程图 ─────────────────────────────────────────────── */
-export function flowChart(xpdl, lang) {
-  const L = gl(lang);
+/* ── 1. XPDL フロー図 ───────────────────────────────────────────── */
+export function flowChart(xpdl) {
   if (!xpdl || !xpdl.processes || !xpdl.processes.length) {
     return `flowchart TD\n  empty["${L.noFlow}"]`;
   }
@@ -56,14 +41,14 @@ export function flowChart(xpdl, lang) {
   for (const p of xpdl.processes) {
     const actIds = new Set(p.activities.map((a) => a.id));
     lines.push(`  subgraph ${sid(p.id)}["${L.processPrefix}${esc(p.name || p.id)}"]`);
-    // 注意：子图内不要写 direction TD —— 与外层 flowchart TD 同向时会触发 mermaid 解析错误，
-    // 子图方向本来就继承父级，省略即可。
+    // 注意：サブグラフ内に direction TD を書かないこと。外側の flowchart TD と同方向だと
+    // mermaid のパースエラーになる。サブグラフの方向は親から継承されるので省略してよい。
     for (const a of p.activities) {
       const cls = a.isRoute ? 'route' : a.implementation === 'tool' ? 'tool' : 'manual';
       const perf = a.performer ? `<br/><small>${esc(a.performer)}</small>` : '';
       lines.push(`    ${sid(a.id)}["${esc(a.name || a.id)}${perf}"]:::${cls}`);
     }
-    // 起止节点推断：无入边的 activity 视作起点
+    // 開始・終了ノードの推定：入辺のない activity を開始点とみなす
     const hasIn = new Set(p.transitions.map((t) => t.to));
     const hasOut = new Set(p.transitions.map((t) => t.from));
     for (const a of p.activities) {
@@ -82,9 +67,10 @@ export function flowChart(xpdl, lang) {
   return lines.join('\n');
 }
 
-/* ── 2. 数据模型 ER 图 ──────────────────────────────────────────── */
+/* ── 2. データモデル ER 図 ──────────────────────────────────────── */
 export function erChart(summary) {
-  // 表模型优先：由表单定义推导，不依赖 .jwa 是否导出了样例数据
+  // テーブルモデルを優先：フォーム定義から導出するため、.jwa がサンプルデータを
+  // エクスポートしているかどうかに依存しない
   const model =
     summary && summary.tableModel && Object.keys(summary.tableModel).length
       ? summary.tableModel
@@ -116,9 +102,8 @@ export function erChart(summary) {
   return lines.join('\n');
 }
 
-/* ── 3. 影响关系图（写/读） ─────────────────────────────────────── */
-export function impactChart(summary, lang) {
-  const L = gl(lang);
+/* ── 3. 影響関係図（書き込み / 読み取り） ───────────────────────── */
+export function impactChart(summary) {
   const impact = summary && summary.impact ? summary.impact : {};
   const wm = impact.writeMap || {};
   const rm = impact.readMap || {};
@@ -148,9 +133,8 @@ export function impactChart(summary, lang) {
   return lines.join('\n');
 }
 
-/* ── 4. 插件调用关系图 ─────────────────────────────────────────── */
-export function callGraphChart(manifest, lang) {
-  const L = gl(lang);
+/* ── 4. プラグイン呼び出し関係図 ───────────────────────────────── */
+export function callGraphChart(manifest) {
   const cg = manifest && manifest.callGraph;
   if (!cg || !cg.nodes || !cg.nodes.length) {
     return `flowchart LR\n  empty["${L.noCall}"]`;
@@ -176,9 +160,8 @@ export function callGraphChart(manifest, lang) {
   return lines.join('\n');
 }
 
-/* ── 5. 菜单结构图 ─────────────────────────────────────────────── */
-export function menuChart(summary, lang) {
-  const L = gl(lang);
+/* ── 5. メニュー構成図 ─────────────────────────────────────────── */
+export function menuChart(summary) {
   const uvs = (summary && summary.app && summary.app.userviews) || [];
   if (!uvs.length) return `flowchart LR\n  empty["${L.noMenu}"]`;
   const lines = ['flowchart LR'];

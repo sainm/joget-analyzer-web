@@ -2,19 +2,19 @@ import mermaid from 'mermaid';
 mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
 
 const cases = {
-  'a subgraph id[无空格标题]': `flowchart TD
+  'a subgraph id[スペースなしタイトル]': `flowchart TD
   subgraph nsrm_x[VendorApproval]
     n1["A"]
   end`,
-  'b subgraph id[带空格标题]': `flowchart TD
+  'b subgraph id[スペースありタイトル]': `flowchart TD
   subgraph nsrm_x[Vendor Quote Approval]
     n1["A"]
   end`,
-  'c subgraph id["带空格标题"]': `flowchart TD
+  'c subgraph id["スペースありタイトル"]': `flowchart TD
   subgraph nsrm_x["Vendor Quote Approval"]
     n1["A"]
   end`,
-  'd subgraph + direction TD(在同层)': `flowchart TD
+  'd subgraph + direction TD（同一階層）': `flowchart TD
   subgraph nsrm_x
     direction TD
     n1["A"]
@@ -37,6 +37,6 @@ for (const [name, code] of Object.entries(cases)) {
     console.log(`✓ ${name}`);
   } catch (e) {
     const msg = String(e.message || e);
-    console.log(`✗ ${name} → ${msg.includes('DOMPurify') ? 'DOMPurify(环境)' : msg.split('\n')[0]}`);
+    console.log(`✗ ${name} → ${msg.includes('DOMPurify') ? 'DOMPurify(実行環境)' : msg.split('\n')[0]}`);
   }
 }

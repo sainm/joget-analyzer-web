@@ -1,9 +1,8 @@
 import React from 'react';
 import { Card, Stat, Badge, Table, Td, Accordion, Empty } from './ui.jsx';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
 export default function Overview({ summary, stats }) {
-  const { t } = useI18n();
   const app = summary.app || {};
   const forms = app.forms || [];
   const datalists = app.datalists || [];

@@ -1,5 +1,6 @@
-// 校验生成的 Mermaid 源码能否被 mermaid 解析器接受
-// 注意：Node 环境无 DOM，mermaid 的 label 净化会抛 DOMPurify 错误 —— 这类视为「解析已通过」。
+// 生成した Mermaid ソースが mermaid パーサに受け入れられるかを検証する
+// 注意：Node 環境には DOM が無いため、mermaid のラベル浄化が DOMPurify エラーを投げる ——
+// これは「パースは通過済み」とみなす。
 import mermaid from 'mermaid';
 import { flowChart, erChart, impactChart, callGraphChart, menuChart } from './src/lib/mermaidGraphs.js';
 import { readFileSync, existsSync } from 'fs';
@@ -22,16 +23,16 @@ const DATASETS = [
 let failed = 0;
 
 for (const ds of DATASETS) {
-  if (!existsSync(ds.summary)) { console.log(`跳过 ${ds.name}（缺 ${ds.summary}）`); continue; }
+  if (!existsSync(ds.summary)) { console.log(`スキップ ${ds.name}（${ds.summary} が無い）`); continue; }
   const summary = JSON.parse(readFileSync(ds.summary, 'utf8'));
   const manifest = ds.manifest && existsSync(ds.manifest) ? JSON.parse(readFileSync(ds.manifest, 'utf8')) : null;
 
   const cases = {
-    业务流程图: flowChart(summary.xpdl),
-    数据模型ER图: erChart(summary),
-    读写影响图: impactChart(summary),
-    菜单结构图: menuChart(summary),
-    插件调用关系图: callGraphChart(manifest),
+    業務フロー図: flowChart(summary.xpdl),
+    データモデルER図: erChart(summary),
+    読み書き影響図: impactChart(summary),
+    メニュー構成図: menuChart(summary),
+    プラグイン呼び出し関係図: callGraphChart(manifest),
   };
 
   console.log(`\n── ${ds.name} ──`);
@@ -42,7 +43,7 @@ for (const ds of DATASETS) {
     } catch (e) {
       const msg = String(e.message || e);
       if (msg.includes('DOMPurify') || msg.includes('document is not defined')) {
-        console.log(`  ✓ ${name}  ${code.split('\n').length} 行（DOM 净化于浏览器执行）`);
+        console.log(`  ✓ ${name}  ${code.split('\n').length} 行（DOM 浄化はブラウザで実行）`);
         continue;
       }
       failed++;
@@ -52,5 +53,5 @@ for (const ds of DATASETS) {
   }
 }
 
-console.log(failed ? `\n${failed} 张图有问题` : '\n全部通过');
+console.log(failed ? `\n${failed} 枚の図に問題があります` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

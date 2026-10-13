@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { analyze, analyzeProject, listRuns, getRun, downloadUrl } from './lib/api.js';
-import { useI18n } from './LangContext.jsx';
-import { LANGS } from './i18n.js';
+import { t } from './i18n.js';
 import Uploader from './components/Uploader.jsx';
 import Overview from './components/Overview.jsx';
 import Impact from './components/Impact.jsx';
@@ -11,7 +10,7 @@ import Graphs from './components/Graphs.jsx';
 import DesignDoc from './components/DesignDoc.jsx';
 import Chunks from './components/Chunks.jsx';
 
-/** 页签只声明 key 与显隐条件，文案统一走 tab.<key> */
+/** タブは key と表示条件のみを宣言し、文言は tab.<key> から引く */
 const TABS = [
   { key: 'overview' },
   { key: 'impact' },
@@ -23,7 +22,6 @@ const TABS = [
 ];
 
 export default function App() {
-  const { t, lang } = useI18n();
   const [runs, setRuns] = useState([]);
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('overview');
@@ -34,11 +32,11 @@ export default function App() {
     listRuns().then((r) => setRuns(r.runs || [])).catch(() => {});
   }, []);
 
-  async function handleAnalyze({ jwa, pluginFiles }) {
+  async function run(fn) {
     setBusy(true);
     setError('');
     try {
-      const res = await analyze({ jwa, pluginFiles, lang });
+      const res = await fn();
       setData(res);
       setTab('overview');
       listRuns().then((r) => setRuns(r.runs || [])).catch(() => {});
@@ -50,41 +48,14 @@ export default function App() {
     }
   }
 
-  async function handleAnalyzeProject({ path: p }) {
-    setBusy(true);
-    setError('');
-    try {
-      const res = await analyzeProject({ path: p, lang });
-      setData(res);
-      setTab('overview');
-      listRuns().then((r) => setRuns(r.runs || [])).catch(() => {});
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (e) {
-      setError(String(e.message || e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleOpenRun(id) {
-    setBusy(true);
-    setError('');
-    try {
-      const res = await getRun(id);
-      setData(res);
-      setTab('overview');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (e) {
-      setError(String(e.message || e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const handleAnalyze = ({ jwa, pluginFiles }) => run(() => analyze({ jwa, pluginFiles }));
+  const handleAnalyzeProject = ({ path: p }) => run(() => analyzeProject({ path: p }));
+  const handleOpenRun = (id) => run(() => getRun(id));
 
   const summary = data?.summary;
   const hasCorrelation = !!(data?.correlation && data.correlation.hasSource);
-  const tabs = TABS.filter((t) => !t.needCorrelation || hasCorrelation);
-  const activeTab = tabs.some((t) => t.key === tab) ? tab : 'overview';
+  const tabs = TABS.filter((x) => !x.needCorrelation || hasCorrelation);
+  const activeTab = tabs.some((x) => x.key === tab) ? tab : 'overview';
 
   return (
     <div className="min-h-full">
@@ -97,8 +68,6 @@ export default function App() {
               <p className="text-[11px] leading-tight text-ink-400">{t('app.subtitle')}</p>
             </div>
           </div>
-
-          <LangSwitch />
 
           {data && (
             <>
@@ -118,8 +87,8 @@ export default function App() {
               <div className="ml-auto flex items-center gap-3">
                 <div className="hidden text-right sm:block">
                   <div className="text-[13px] font-semibold text-ink-700">{data.meta?.appName}</div>
-                  <div className="max-w-[380px] truncate text-[11px] text-ink-400" title={data.meta?.inputPath || data.meta?.jwaName}>
-                    {data.meta?.elapsedMs}ms · {data.meta?.source === 'local' ? data.meta?.inputPath : data.meta?.jwaName}
+                  <div className="max-w-[420px] truncate text-[11px] text-ink-400" title={data.meta?.projectRoot || data.meta?.inputPath || data.meta?.jwaName}>
+                    {data.meta?.elapsedMs}ms · {data.meta?.source === 'local' ? data.meta?.projectRoot || data.meta?.inputPath : data.meta?.jwaName}
                   </div>
                 </div>
                 <button
@@ -127,7 +96,7 @@ export default function App() {
                     setData(null);
                     setError('');
                   }}
-                  className="shrink-0 rounded-md border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50"
+                  className="shrink-0 whitespace-nowrap rounded-md border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50"
                 >
                   {t('app.reanalyze')}
                 </button>
@@ -183,7 +152,7 @@ export default function App() {
             <div className="mt-5">
               {activeTab === 'overview' && <Overview summary={summary} stats={data.stats || data.meta?.stats} />}
               {activeTab === 'impact' && <Impact summary={summary} />}
-              {activeTab === 'correlation' && hasCorrelation && <Correlation correlation={data.correlation} manifest={data.manifest} />}
+              {activeTab === 'correlation' && hasCorrelation && <Correlation correlation={data.correlation} />}
               {activeTab === 'plugins' && <Plugins summary={summary} manifest={data.manifest} />}
               {activeTab === 'graphs' && <Graphs summary={summary} manifest={data.manifest} correlation={data.correlation} />}
               {activeTab === 'doc' && <DesignDoc designDoc={data.designDoc} runId={data.meta?.id} />}
@@ -202,27 +171,17 @@ export default function App() {
   );
 }
 
-function LangSwitch() {
-  const { lang, setLang } = useI18n();
-  return (
-    <div className="flex shrink-0 overflow-hidden rounded-md border border-ink-200">
-      {LANGS.map((l) => (
-        <button
-          key={l.key}
-          onClick={() => setLang(l.key)}
-          className={`whitespace-nowrap px-2.5 py-1 text-[11px] font-medium transition ${
-            lang === l.key ? 'bg-ink-800 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
-          }`}
-        >
-          {l.label}
-        </button>
-      ))}
-    </div>
-  );
-}
+/** 生成物はファイル名 → 表示名の対応表で日本語化する */
+const ARTIFACT_LABEL = {
+  'app_summary.json': 'art.appSummary',
+  'analysis_inputs.json': 'art.gapTemplate',
+  'design_doc.md': 'art.doc',
+  'rag_chunks.jsonl': 'art.chunks',
+  'plugin_manifest.json': 'art.manifest',
+  'correlation.json': 'art.correlation',
+};
 
 function Artifacts({ artifacts, runId }) {
-  const { t } = useI18n();
   if (!artifacts || !artifacts.length) return null;
   const fmt = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`);
   return (
@@ -242,16 +201,6 @@ function Artifacts({ artifacts, runId }) {
     </div>
   );
 }
-
-const ARTIFACT_LABEL = {
-  'app_summary.json': 'art.appSummary',
-  'analysis_inputs.json': 'art.gapTemplate',
-  'design_doc_zh.md': 'art.docZh',
-  'design_doc_ja.md': 'art.docJa',
-  'rag_chunks.jsonl': 'art.chunks',
-  'plugin_manifest.json': 'art.manifest',
-  'correlation.json': 'art.correlation',
-};
 
 function LoadingBar() {
   return (

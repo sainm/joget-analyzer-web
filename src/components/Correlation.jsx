@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Card, Badge, Table, Td, Stat, Empty, Accordion } from './ui.jsx';
 import Mermaid from './Mermaid.jsx';
 import { callGraphChart } from '../lib/mermaidGraphs.js';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
-/** verdict → i18n key 映射（label/hint 都从词表取） */
+/** verdict → i18n key の対応（label/hint はいずれも語彙表から取得） */
 const VERDICT = {
   dead: { label: 'co.vDead', hint: 'co.vDeadHint', tone: 'rose' },
   'wrong-plugin': { label: 'co.vWrong', hint: 'co.vWrongHint', tone: 'amber' },
@@ -12,7 +12,6 @@ const VERDICT = {
 };
 
 export default function Correlation({ correlation, manifest }) {
-  const { t, lang } = useI18n();
   const [openSet, setOpenSet] = useState({});
   const c = correlation;
 
@@ -108,7 +107,7 @@ export default function Correlation({ correlation, manifest }) {
                   <div className="space-y-4 border-t border-ink-100 p-3">
                     <div className="font-mono text-[11px] text-ink-400">{b.className}</div>
 
-                    {/* 应用实际配置 */}
+                    {/* アプリの実設定 */}
                     <div>
                       <div className="mb-1.5 text-[12px] font-semibold text-ink-600">
                         {t('co.actualTitle', { n: b.setCount })}
@@ -143,7 +142,7 @@ export default function Correlation({ correlation, manifest }) {
                       )}
                     </div>
 
-                    {/* 三方对照 */}
+                    {/* 三者照合 */}
                     <div className="grid gap-3 sm:grid-cols-3">
                       <DiffBox
                         title={t('co.propsTitle', { n: b.declaredCount })}
@@ -176,7 +175,7 @@ export default function Correlation({ correlation, manifest }) {
                       </details>
                     )}
 
-                    {/* 调用关系 */}
+                    {/* 呼び出し関係 */}
                     {(b.calls.length > 0 || b.calledBy.length > 0) && (
                       <div className="rounded-lg border border-ink-100 bg-ink-50 p-2.5">
                         <div className="mb-1.5 text-[12px] font-semibold text-ink-600">{t('co.callTitle')}</div>
@@ -243,7 +242,7 @@ export default function Correlation({ correlation, manifest }) {
       </div>
 
       <Card title={t('co.focusGraph')} subtitle={t('co.focusGraphSub')}>
-        <Mermaid code={callGraphChart({ callGraph: c.focusedCallGraph }, lang)} />
+        <Mermaid code={callGraphChart({ callGraph: c.focusedCallGraph })} />
       </Card>
 
       {c.platform.length > 0 && (
@@ -262,7 +261,6 @@ export default function Correlation({ correlation, manifest }) {
 }
 
 function DiffBox({ title, items, empty, tone }) {
-  const { t } = useI18n();
   return (
     <div className="rounded-lg border border-ink-200">
       <div className="border-b border-ink-100 bg-ink-50 px-2.5 py-1.5 text-[12px] font-semibold text-ink-600">{title}</div>

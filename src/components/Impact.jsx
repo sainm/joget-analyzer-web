@@ -1,9 +1,8 @@
 import React from 'react';
 import { Card, Badge, Table, Td, Empty, Stat } from './ui.jsx';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
 export default function Impact({ summary }) {
-  const { t } = useI18n();
   const impact = summary.impact || { writeMap: {}, readMap: {}, issues: [] };
   const writeMap = impact.writeMap || {};
   const readMap = impact.readMap || {};

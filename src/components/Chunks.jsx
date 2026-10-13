@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Badge, Stat, Empty } from './ui.jsx';
 import { downloadUrl } from '../lib/api.js';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
-/** 分块类型 → i18n key（词表里以 ct.<type> 维护） */
+/** チャンク種別 → i18n key（語彙表では ct.<type> として管理） */
 const TYPE_KEY = (type) => `ct.${type}`;
 
 export default function Chunks({ chunks, chunkStats, runId }) {
-  const { t } = useI18n();
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
 

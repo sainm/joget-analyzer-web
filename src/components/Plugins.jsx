@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Badge, Table, Td, Empty, Stat, Accordion } from './ui.jsx';
 import Mermaid from './Mermaid.jsx';
 import { callGraphChart } from '../lib/mermaidGraphs.js';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
 const CATS = [
   { key: 'custom', label: 'pl.catCustom', tone: 'amber', hint: 'pl.catCustomHint' },
@@ -12,7 +12,6 @@ const CATS = [
 ];
 
 export default function Plugins({ summary, manifest }) {
-  const { t, lang } = useI18n();
   const refs = summary.plugin_refs || {};
   const datasources = summary.datasources || [];
   const sqlTables = summary.sql_tables || {};
@@ -158,7 +157,7 @@ export default function Plugins({ summary, manifest }) {
           </Card>
 
           <Card title={t('pl.callTitle')} subtitle={t('pl.callSub')}>
-            <Mermaid code={callGraphChart(manifest, lang)} />
+            <Mermaid code={callGraphChart(manifest)} />
           </Card>
         </>
       )}

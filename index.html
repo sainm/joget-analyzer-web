@@ -4,23 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Joget アプリ解析ツール</title>
-    <script>
-      // 在 React 挂载前先定好语言与标题，避免首屏闪一下默认语言
-      (function () {
-        try {
-          var s = localStorage.getItem('joget-analyzer-lang');
-          var lang;
-          if (s === 'zh' || s === 'ja') {
-            lang = s;
-          } else {
-            var list = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
-            lang = list.some(function (l) { return /^ja\b/i.test(String(l)); }) ? 'ja' : 'zh';
-          }
-          document.documentElement.lang = lang === 'ja' ? 'ja' : 'zh-CN';
-          document.title = lang === 'ja' ? 'Joget アプリ解析ツール' : 'Joget 应用分析器';
-        } catch (e) {}
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>

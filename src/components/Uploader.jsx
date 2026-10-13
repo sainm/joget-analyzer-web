@@ -1,30 +1,29 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, Badge } from './ui.jsx';
 import { listDir, discover } from '../lib/api.js';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 
 const fmtSize = (n) => (!n ? '0 B' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
 
-/** 上次分析过的路径：刷新后回填，但不默认指向工具自身目录 */
+/** 前回解析したパス：リロード後に復元するが、既定ではツール自身のディレクトリを指さない */
 const LAST_PATH_KEY = 'joget-analyzer-last-path';
 
-/* ── 目录选择器 ─────────────────────────────────────────────────── */
+/* ── ディレクトリ選択 ───────────────────────────────────────────── */
 function DirPicker({ onPick, onClose }) {
-  const { t, lang } = useI18n();
   const [cur, setCur] = useState(null);
   const [loading, setLoading] = useState(false);
   const [goto, setGoto] = useState('');
 
   const load = useCallback((p) => {
     setLoading(true);
-    listDir(p, lang)
+    listDir(p)
       .then((d) => {
         setCur(d);
         setGoto(d.path);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [lang]);
+  }, []);
 
   useEffect(() => { load(''); }, [load]);
 
@@ -105,14 +104,13 @@ function DirPicker({ onPick, onClose }) {
   );
 }
 
-/* ── 预检结果 ───────────────────────────────────────────────────── */
+/* ── 事前確認の結果 ─────────────────────────────────────────────── */
 function Preview({ info, onPickProject }) {
-  const { t } = useI18n();
   if (!info) return null;
   if (info.kind === 'missing' || info.kind === 'invalid' || (info.kind === 'file' && !info.jwaFiles.length)) {
     return <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">{info.error || '—'}</div>;
   }
-  // 多工程并存：不擅自挑一个，让用户明确指定，避免跨工程混搭
+  // 複数プロジェクトの併存：勝手に 1 つを選ばず、ユーザーに明示指定させる（プロジェクト間の混在を防ぐ）
   if (info.ambiguous) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -178,7 +176,7 @@ function Preview({ info, onPickProject }) {
   );
 }
 
-/* ── 上传区 ─────────────────────────────────────────────────────── */
+/* ── アップロード領域 ───────────────────────────────────────────── */
 function DropZone({ label, hint, accept, files, onFiles, multiple }) {
   const [over, setOver] = useState(false);
   const inputRef = useRef(null);
@@ -211,9 +209,8 @@ function DropZone({ label, hint, accept, files, onFiles, multiple }) {
   );
 }
 
-/* ── 主组件 ─────────────────────────────────────────────────────── */
+/* ── メインコンポーネント ───────────────────────────────────────── */
 export default function Uploader({ onAnalyze, onAnalyzeProject, busy, runs, onOpenRun }) {
-  const { t, lang } = useI18n();
   const [mode, setMode] = useState('local');
   const [pathInput, setPathInput] = useState('');
   const [showPicker, setShowPicker] = useState(false);
@@ -223,21 +220,21 @@ export default function Uploader({ onAnalyze, onAnalyzeProject, busy, runs, onOp
   const [jwa, setJwa] = useState([]);
   const [plugins, setPlugins] = useState([]);
 
-  // 不默认指向工具自身目录：优先用上次分析过的路径，没有就留空让用户自己填
+  // 既定ではツール自身のディレクトリを指さない：前回解析したパスを優先し、無ければ空のままにする
   useEffect(() => {
     let last = '';
     try { last = localStorage.getItem(LAST_PATH_KEY) || ''; } catch (e) { /* ignore */ }
     if (!last) return;
     setPathInput(last);
-    discover(last, lang).then(setInfo).catch(() => {});
-    // 只在挂载时跑一次：语言切换不需要重新预检
+    discover(last).then(setInfo).catch(() => {});
+    // マウント時に 1 度だけ実行する（言語切替で再確認は不要）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const check = (p) => {
     if (!p || !p.trim()) return;
     setChecking(true);
-    discover(p, lang).then(setInfo).catch(() => setInfo(null)).finally(() => setChecking(false));
+    discover(p).then(setInfo).catch(() => setInfo(null)).finally(() => setChecking(false));
   };
 
   const startLocal = (p) => {
@@ -308,7 +305,7 @@ export default function Uploader({ onAnalyze, onAnalyzeProject, busy, runs, onOp
                 />
               )}
 
-              {/* 固定高度：避免预检结果出现/消失时按钮位置跳动导致点击落空 */}
+              {/* 高さを固定：事前確認の結果が出入りしてもボタンが動かず、クリックが外れないようにする */}
               <div className="min-h-[104px]">
                 {checking ? (
                   <div className="flex h-[104px] items-center justify-center text-xs text-ink-400">{t('up.checking')}</div>

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Card, Empty } from './ui.jsx';
 import Mermaid from './Mermaid.jsx';
-import { useI18n } from '../LangContext.jsx';
+import { t } from '../i18n.js';
 import { flowChart, erChart, impactChart, callGraphChart, menuChart } from '../lib/mermaidGraphs.js';
 
-/** 视图清单只存 key，文案全部走词表（g.*） */
+/** ビュー一覧は key のみ保持し、文言はすべて語彙表（g.*）から取得する */
 const VIEWS = [
   { key: 'flow', label: 'g.flow', hint: 'g.flowHint' },
   { key: 'er', label: 'g.er', hint: 'g.erHint' },
@@ -14,18 +14,17 @@ const VIEWS = [
 ];
 
 export default function Graphs({ summary, manifest, correlation }) {
-  const { t, lang } = useI18n();
   const [view, setView] = useState('flow');
 
-  // 有联动结果时，调用关系图只画应用真正用到的部分
+  // 突合結果がある場合、呼び出し関係図はアプリが実際に使う部分だけを描画する
   const focusGraph = correlation && correlation.hasSource ? correlation.focusedCallGraph : null;
 
   const code = {
-    flow: flowChart(summary.xpdl, lang),
+    flow: flowChart(summary.xpdl),
     er: erChart(summary),
-    impact: impactChart(summary, lang),
-    menu: menuChart(summary, lang),
-    call: callGraphChart(focusGraph ? { callGraph: focusGraph } : manifest, lang),
+    impact: impactChart(summary),
+    menu: menuChart(summary),
+    call: callGraphChart(focusGraph ? { callGraph: focusGraph } : manifest),
   }[view];
 
   const current = VIEWS.find((v) => v.key === view);

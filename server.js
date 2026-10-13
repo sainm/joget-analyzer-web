@@ -1,23 +1,24 @@
 'use strict';
 
 /**
- * Joget 应用分析 Web 工具 — 后端服务
+ * Joget アプリ解析 Web ツール — バックエンドサービス
  *
- * 输入有两种方式（首选第一种）：
- *   1) 指向本机工程目录 —— 工具自动识别目录里的 .jwa（应用）与 Maven 源码（插件）
- *   2) 上传文件 —— .jwa 应用包（+ 可选的插件源码压缩包）
+ * 入力は 2 通り（通常は 1 を推奨）：
+ *   1) ローカルプロジェクトディレクトリを指定 —— ディレクトリ内の .jwa（アプリ）と
+ *      Maven ソース（プラグイン）を自動認識する
+ *   2) ファイルをアップロード —— .jwa アプリパッケージ（+ 任意でプラグインソースの zip）
  *
- * 事实靠解析（本服务，纯 Node.js），语义交 AI（本轮暂不接入）。
+ * 事実は解析で（本サービス、純 Node.js）、意味づけは AI で（本フェーズでは未接続）。
  *
- * 路由：
- *   POST /api/analyze-project              以本机路径为输入，执行全链路分析
- *   POST /api/analyze                      以文件上传为输入（.jwa / 插件 zip）
- *   GET  /api/fs/list?path=                浏览本机目录（供目录选择器）
- *   GET  /api/fs/discover?path=            预检：该路径里有什么（.jwa / Maven 工程）
- *   GET  /api/runs                         历史分析列表
- *   GET  /api/runs/:id                     读取某次分析结果
- *   GET  /api/runs/:id/download/:name      下载产物
- *   GET  /api/health                       健康检查
+ * ルーティング：
+ *   POST /api/analyze-project              ローカルパスを入力として全工程を解析
+ *   POST /api/analyze                      ファイルアップロードを入力として解析（.jwa / プラグイン zip）
+ *   GET  /api/fs/list?path=                ローカルディレクトリの一覧（ディレクトリ選択用）
+ *   GET  /api/fs/discover?path=            事前確認：そのパスに何があるか（.jwa / Maven プロジェクト）
+ *   GET  /api/runs                         解析履歴の一覧
+ *   GET  /api/runs/:id                     ある解析結果の読み出し
+ *   GET  /api/runs/:id/download/:name      成果物のダウンロード
+ *   GET  /api/health                       ヘルスチェック
  */
 
 const fs = require('fs');
@@ -40,12 +41,6 @@ const DIST_DIR = path.join(ROOT, 'dist');
 const PORT = process.env.PORT || 3000;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-
-/** 从请求里取界面语言：body.lang / query.lang 均可，非 'ja' 一律回落中文 */
-const reqLang = (req) => {
-  const v = (req.body && req.body.lang) || (req.query && req.query.lang);
-  return v === 'ja' ? 'ja' : 'zh';
-};
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -77,7 +72,7 @@ function chunkStats(chunks) {
   return { count: (chunks || []).length, byType, totalChars: total };
 }
 
-/** 目录里没有 .jwa 时，用占位 summary 让下游（设计书 / RAG）仍能工作 */
+/** ディレクトリに .jwa がない場合、下流（設計書 / RAG）が動くようプレースホルダの summary を返す */
 function emptySummary(name) {
   return {
     generatedAt: new Date().toISOString(),
@@ -98,17 +93,15 @@ const EMPTY_STATS = {
 };
 
 /**
- * 公共收尾：设计书 + RAG 分块 + 落盘 + 组装响应
+ * 共通の締め処理：設計書 + RAG チャンク + 永続化 + レスポンス組み立て
  */
 function finalize({ id, rd, outDir, summary, stats, manifest, startedAt, extraMeta = {}, extraResp = {} }) {
-  // 应用配置 ↔ 插件源码 联动比对
+  // アプリ設定 ↔ プラグインソース の突合
   const correlation = correlate(summary, manifest);
   fs.writeFileSync(path.join(outDir, 'correlation.json'), JSON.stringify(correlation, null, 2), 'utf8');
 
-  const docZh = generateDesignDoc(summary, 'zh', { correlation, manifest });
-  const docJa = generateDesignDoc(summary, 'ja', { correlation, manifest });
-  fs.writeFileSync(path.join(outDir, 'design_doc_zh.md'), docZh, 'utf8');
-  fs.writeFileSync(path.join(outDir, 'design_doc_ja.md'), docJa, 'utf8');
+  const doc = generateDesignDoc(summary, { correlation, manifest });
+  fs.writeFileSync(path.join(outDir, 'design_doc.md'), doc, 'utf8');
 
   const chunks = buildChunks(summary, manifest, correlation);
   fs.writeFileSync(path.join(outDir, 'rag_chunks.jsonl'), toJsonl(chunks), 'utf8');
@@ -131,19 +124,18 @@ function finalize({ id, rd, outDir, summary, stats, manifest, startedAt, extraMe
     summary,
     manifest,
     correlation,
-    designDoc: { zh: docZh, ja: docJa },
+    designDoc: doc,
     chunks,
     chunkStats: chunkStats(chunks),
     artifacts: [
-      { name: 'app_summary.json', label: '应用摘要 JSON', size: fileSize(outDir, 'app_summary.json') },
-      { name: 'analysis_inputs.json', label: '缺口模板 JSON', size: fileSize(outDir, 'analysis_inputs.json') },
-      { name: 'design_doc_zh.md', label: '设计书（中文）', size: fileSize(outDir, 'design_doc_zh.md') },
-      { name: 'design_doc_ja.md', label: '設計書（日本語）', size: fileSize(outDir, 'design_doc_ja.md') },
-      { name: 'rag_chunks.jsonl', label: 'RAG 分块 JSONL', size: fileSize(outDir, 'rag_chunks.jsonl') },
+      { name: 'app_summary.json', label: 'アプリ概要 JSON', size: fileSize(outDir, 'app_summary.json') },
+      { name: 'analysis_inputs.json', label: '不足項目テンプレート JSON', size: fileSize(outDir, 'analysis_inputs.json') },
+      { name: 'design_doc.md', label: '設計書', size: fileSize(outDir, 'design_doc.md') },
+      { name: 'rag_chunks.jsonl', label: 'RAG チャンク JSONL', size: fileSize(outDir, 'rag_chunks.jsonl') },
       ...(manifest && !manifest.error
         ? [
-            { name: 'plugin_manifest.json', label: '插件清单 JSON', size: fileSize(outDir, 'plugin_manifest.json') },
-            { name: 'correlation.json', label: '应用↔源码联动 JSON', size: fileSize(outDir, 'correlation.json') },
+            { name: 'plugin_manifest.json', label: 'プラグイン一覧 JSON', size: fileSize(outDir, 'plugin_manifest.json') },
+            { name: 'correlation.json', label: 'アプリ↔ソース突合 JSON', size: fileSize(outDir, 'correlation.json') },
           ]
         : []),
     ],
@@ -151,22 +143,21 @@ function finalize({ id, rd, outDir, summary, stats, manifest, startedAt, extraMe
   };
 }
 
-/* ── 入口 1：本机工程目录 ────────────────────────────────────────────── */
+/* ── 入口 1：ローカルプロジェクトディレクトリ ──────────────────────── */
 
 app.post('/api/analyze-project', (req, res) => {
   const startedAt = Date.now();
   try {
     const raw = (req.body && req.body.path) || '';
-    const lang = (req.body && req.body.lang) === 'ja' ? 'ja' : 'zh';
-    if (!raw.trim()) return res.status(400).json({ error: msg(lang, 'needPath') });
+    if (!raw.trim()) return res.status(400).json({ error: msg('needPath') });
 
-    const proj = discoverProject(raw, lang);
+    const proj = discoverProject(raw);
     if (proj.kind === 'missing' || proj.kind === 'invalid') return res.status(400).json({ error: proj.error });
-    if (proj.kind === 'file' && !proj.jwaFiles.length) return res.status(400).json({ error: proj.error || msg(lang, 'notJwaFile') });
-    // 多工程并存时不擅自挑一个，避免把不同工程的文件混在一起
+    if (proj.kind === 'file' && !proj.jwaFiles.length) return res.status(400).json({ error: proj.error || msg('notJwaFile') });
+    // 複数プロジェクトの併存時は勝手に 1 つを選ばない（プロジェクト間の混在を防ぐ）
     if (proj.ambiguous) {
       return res.status(400).json({
-        error: msg(lang, 'ambiguousProjects', {
+        error: msg('ambiguousProjects', {
           n: proj.projects.length,
           list: proj.projects.map((g) => g.root).join(' / '),
         }),
@@ -180,7 +171,7 @@ app.post('/api/analyze-project', (req, res) => {
     const outDir = path.join(rd, 'out');
     fs.mkdirSync(outDir, { recursive: true });
 
-    // 1) 应用：只取「选定工程」范围内的 .jwa，绝不跨工程取
+    // 1) アプリ：「選択したプロジェクト」範囲の .jwa のみを対象とし、決して別プロジェクトから取らない
     const scopedJwa = (proj.chosen ? proj.chosen.jwaFiles : proj.jwaFiles) || [];
     let summary;
     let stats;
@@ -204,7 +195,7 @@ app.post('/api/analyze-project', (req, res) => {
       fs.writeFileSync(path.join(outDir, 'app_summary.json'), JSON.stringify(summary, null, 2), 'utf8');
     }
 
-    // 2) 插件源码：只取「选定工程」的 Maven 根
+    // 2) プラグインソース：「選択したプロジェクト」の Maven ルートのみを対象とする
     let manifest = null;
     let pluginSource = null;
     if (proj.maven) {
@@ -222,7 +213,6 @@ app.post('/api/analyze-project', (req, res) => {
         id, rd, outDir, summary, stats, manifest, startedAt,
         extraMeta: {
           source: 'local',
-          requestedLang: lang,
           inputPath: proj.root,
           projectRoot: proj.chosen ? proj.chosen.root : proj.root,
           jwaName: appSource ? appSource.rel : null,
@@ -233,7 +223,7 @@ app.post('/api/analyze-project', (req, res) => {
             root: proj.root,
             kind: proj.kind,
             projectRoot: proj.chosen ? proj.chosen.root : proj.root,
-            // 只回传选定工程范围内的文件，避免前端展示时混入其他工程
+            // 選択したプロジェクト範囲のファイルのみを返し、他プロジェクトが画面に混ざらないようにする
             jwaFiles: scopedJwa.map((j) => ({ rel: j.rel, size: j.size })),
             mavenRoots: proj.chosen && proj.chosen.mavenRoot ? [proj.chosen.mavenRoot] : [],
             otherProjects: proj.projects.filter((g) => !proj.chosen || g.root !== proj.chosen.root).map((g) => g.root),
@@ -244,12 +234,12 @@ app.post('/api/analyze-project', (req, res) => {
       })
     );
   } catch (err) {
-    console.error('[analyze-project] 失败：', err);
+    console.error('[analyze-project] 失敗：', err);
     res.status(500).json({ error: String((err && err.message) || err) });
   }
 });
 
-/* ── 入口 2：文件上传 ───────────────────────────────────────────────── */
+/* ── 入口 2：ファイルアップロード ──────────────────────────────────── */
 
 app.post(
   '/api/analyze',
@@ -258,8 +248,7 @@ app.post(
     const startedAt = Date.now();
     try {
       const jwaFile = req.files && req.files.jwa && req.files.jwa[0];
-      const lang = (req.body && req.body.lang) === 'ja' ? 'ja' : 'zh';
-      if (!jwaFile) return res.status(400).json({ error: msg(lang, 'needJwaUpload') });
+      if (!jwaFile) return res.status(400).json({ error: msg('needJwaUpload') });
 
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const rd = runDir(id);
@@ -311,29 +300,29 @@ app.post(
         })
       );
     } catch (err) {
-      console.error('[analyze] 失败：', err);
+      console.error('[analyze] 失敗：', err);
       res.status(500).json({ error: String((err && err.message) || err) });
     }
   }
 );
 
-/* ── 本机文件系统浏览 / 预检 ────────────────────────────────────────── */
+/* ── ローカルファイルシステムの閲覧 / 事前確認 ────────────────────── */
 
 app.get('/api/fs/list', (req, res) => {
-  // 未指定路径时从用户主目录开始 —— 不默认到工具自身目录，避免把工具自己的文件当成被分析对象
+  // パス未指定時はユーザーのホームディレクトリから開始する —— ツール自身のディレクトリを
+  // 既定にすると、ツール自身のファイルを解析対象と誤認するため
   const fallback = process.env.JOGET_ANALYZER_BROWSE_ROOT || os.homedir();
-  res.json(listDir(req.query.path || fallback, reqLang(req)));
+  res.json(listDir(req.query.path || fallback));
 });
 
 app.get('/api/fs/discover', (req, res) => {
-  const lang = reqLang(req);
   const p = req.query.path;
-  if (!p) return res.status(400).json({ error: msg(lang, 'needPathParam') });
-  const proj = discoverProject(p, lang);
+  if (!p) return res.status(400).json({ error: msg('needPathParam') });
+  const proj = discoverProject(p);
   res.json(proj);
 });
 
-/* ── 结果读取 ─────────────────────────────────────────────────────── */
+/* ── 結果の読み出し ───────────────────────────────────────────────── */
 
 app.get('/api/runs', (_req, res) => {
   let ids = [];
@@ -361,8 +350,7 @@ app.get('/api/runs/:id', (req, res) => {
       try { return JSON.parse(l); } catch (e) { return null; }
     }).filter(Boolean);
   }
-  const designZh = readText(path.join(outDir, 'design_doc_zh.md'));
-  const designJa = readText(path.join(outDir, 'design_doc_ja.md'));
+  const designDoc = readText(path.join(outDir, 'design_doc.md'));
   const chosenJwa = readText(path.join(rd, 'chosen-jwa.txt')).trim();
   res.json({
     meta,
@@ -370,7 +358,7 @@ app.get('/api/runs/:id', (req, res) => {
     summary,
     manifest,
     correlation,
-    designDoc: { zh: designZh, ja: designJa },
+    designDoc,
     chunks,
     chunkStats: chunkStats(chunks),
     project: chosenJwa ? { root: meta && meta.inputPath, jwaFiles: [{ rel: path.basename(chosenJwa) }] } : null,
@@ -392,7 +380,7 @@ app.get('/api/runs/:id/download/:name', (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-/* ── 静态前端 ─────────────────────────────────────────────────────── */
+/* ── 静的フロントエンド ───────────────────────────────────────────── */
 
 if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
@@ -403,14 +391,14 @@ if (fs.existsSync(DIST_DIR)) {
 } else {
   app.get('/', (_req, res) => {
     res.status(200).type('html').send(
-      '<h1>Joget Analyzer API 已启动</h1>' +
-      '<p>前端尚未构建。开发模式请另开终端运行 <code>npm run dev</code>（Vite，5173）。</p>' +
-      '<p>生产模式请运行 <code>npm run build</code> 后再访问本端口。</p>'
+      '<h1>Joget Analyzer API 起動中</h1>' +
+      '<p>フロントエンドは未ビルドです。開発モードでは別ターミナルで <code>npm run dev</code>（Vite、5173）を実行してください。</p>' +
+      '<p>本番モードでは <code>npm run build</code> を実行してから本ポートにアクセスしてください。</p>'
     );
   });
 }
 
 app.listen(PORT, () => {
-  console.log(`\n  Joget 分析服务已启动`);
+  console.log(`\n  Joget 解析サービスを起動しました`);
   console.log(`  → http://localhost:${PORT}\n`);
 });

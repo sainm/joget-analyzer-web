@@ -23,7 +23,7 @@
   --color-amber-500: #e0930c;
   --color-rose-500: #e5484d;
 
-  --font-sans: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-sans: "Inter", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Noto Sans JP", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
 }
 
@@ -37,12 +37,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 细滚动条 */
+/* 細いスクロールバー */
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: var(--color-ink-200); border-radius: 8px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--color-ink-300); }
 
-/* 设计书 markdown 排版 */
+/* 設計書 markdown の組版 */
 .doc-md h1 { font-size: 1.6rem; font-weight: 700; margin: 1.4rem 0 .8rem; }
 .doc-md h2 { font-size: 1.25rem; font-weight: 700; margin: 1.6rem 0 .6rem; padding-bottom: .35rem; border-bottom: 1px solid var(--color-ink-200); }
 .doc-md h3 { font-size: 1.05rem; font-weight: 600; margin: 1.1rem 0 .5rem; }
@@ -59,5 +59,5 @@ body {
 .doc-md tr:nth-child(even) td { background: #fafbfc; }
 .doc-md blockquote { border-left: 3px solid var(--color-brand-300); padding: .2rem .9rem; color: var(--color-ink-600); margin: .7rem 0; }
 
-/* mermaid 容器 */
+/* mermaid コンテナ */
 .mermaid-host svg { max-width: 100%; height: auto; }
