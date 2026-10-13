@@ -73,6 +73,41 @@ npm start          # 別ターミナルでバックエンドを起動
 
 目的は**別プロジェクトのファイルを混在させないこと**です。
 
+## 動作確認
+
+`fixtures/` に解析用のサンプルを同梱しています（詳細は `fixtures/README.md`）。
+
+```bash
+npm start                                  # 別ターミナルで起動しておく
+npm run verify:lang                        # 日本語のみになっているかのゲート
+npm run test:ui                            # UI スモークテスト（Playwright）
+npm run test:engine                        # 解析エンジン単体
+npm run test:mermaid                       # 生成した Mermaid がパースできるか
+npm run test:plugin                        # プラグインソースのスキャン
+npm run test:correlate                     # アプリ設定 ↔ プラグインソース突合
+```
+
+| スクリプト | 内容 | 顧客アプリの `.jwa` が必要か |
+|---|---|---|
+| `npm run verify:lang` | 簡体字・中国語句読点の残留検査（0 件で合格） | 不要 |
+| `npm run test:ui` | UI スモークテスト | 不要 |
+| `npm run test:plugin` | プラグインソースのスキャン | 不要 |
+| `npm run test:correlate` | アプリ設定 ↔ プラグインソース突合 | 不要 |
+| `npm run test:engine` | 解析エンジン単体テスト | **必要** |
+| `npm run test:mermaid` | 両フィクスチャの Mermaid 生成 | **必要** |
+
+同梱するのは Apache-2.0 のオープンソース素材（`fixtures/enhanced-json-api-main`）のみで、
+顧客アプリの `.jwa` は業務定義そのものなのでコミットしていません。
+そのため、クローン直後は「必要」列が**必要**のテストだけが動きません。
+`JOGET_PROJECT` で対象を差し替えれば、どのテストも手元のアプリに対して実行できます。
+
+```bash
+JOGET_PROJECT=/path/to/your-project npm run test:engine
+```
+
+`fixtures/enhanced-json-api-main` を指定すると、参照プラグインクラス 25 件のうち 5 件がソースに命中し、
+`autoHandleWorkflowVariable` が 2 箇所で「無効な設定項目」と判定されるはずです。
+
 ## 技術スタック
 
 解析は純粋な Node.js（Express + adm-zip + fast-xml-parser）、フロントは React 18 + Vite + Tailwind CSS v4、図は Mermaid をフロント側で描画。**データベースは使用しません** —— 結果は `data/runs/<id>/out/` に出力されます。

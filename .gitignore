@@ -14,6 +14,21 @@ data/
 # .jwa は Joget アプリのエクスポートパッケージで、完全なアプリ定義を含むため同様にコミットしません
 *.jwa
 
+# ── 同梱フィクスチャ（fixtures/）────────────────────────────────
+# 解析の動作確認に使うサンプル。コミットするのは Apache-2.0 の
+# オープンソース素材（プラグインソースとその同梱サンプルアプリ）のみ。
+#   - 顧客アプリの .jwa（fixtures/rfq/）は業務定義そのものなのでコミットしない
+#   - 解析時の展開物（APP_*/）と、解析で生成した派生物はコミットしない
+fixtures/rfq/
+fixtures/**/APP_*/
+fixtures/**/parsed/
+fixtures/enhanced-json-api-main/*.md
+!fixtures/enhanced-json-api-main/README.md
+!fixtures/enhanced-json-api-main/CODE_OF_CONDUCT.md
+
+# 例外：オープンソース素材に同梱されているサンプルアプリはフィクスチャとして必要
+!fixtures/enhanced-json-api-main/APP_EnhancedJSONAPISampleApp-1-20241101165150.jwa
+
 # ── システム・エディタ ──────────────────────────────────────────
 .DS_Store
 Thumbs.db

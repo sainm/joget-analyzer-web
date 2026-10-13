@@ -3,19 +3,19 @@
  *
  * 使い方: node test-plugin.js <対象.jwa> [プラグインプロジェクト] [出力ディレクトリ]
  */
+const path = require('path');
 const { analyze } = require('./lib/analyze');
 const { scanPluginSource } = require('./lib/pluginScan');
 const { buildChunks, toJsonl } = require('./lib/ragChunks');
 const { generateDesignDoc } = require('./lib/designDoc');
 
-const jwa = process.argv[2] || process.env.JOGET_TEST_JWA;
-const pluginDir = process.argv[3] || process.env.JOGET_PROJECT;
-const out = process.argv[4] || './data/test/out2';
+const FIXTURES = path.join(__dirname, 'fixtures');
+const FIXTURE_PLUGIN = path.join(FIXTURES, 'enhanced-json-api-main');
 
-if (!jwa) {
-  console.error('.jwa のパスを指定してください（引数または JOGET_TEST_JWA）');
-  process.exit(2);
-}
+const jwa = process.argv[2] || process.env.JOGET_TEST_JWA
+  || path.join(FIXTURE_PLUGIN, 'APP_EnhancedJSONAPISampleApp-1-20241101165150.jwa');
+const pluginDir = process.argv[3] || process.env.JOGET_PROJECT || FIXTURE_PLUGIN;
+const out = process.argv[4] || './data/test/out2';
 
 const r = analyze(jwa, out);
 console.log('--- app stats ---');

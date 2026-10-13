@@ -3,11 +3,13 @@
  *
  * 使い方: node test-engine.js [対象.jwa] [出力ディレクトリ]
  */
+const path = require('path');
 const { analyze } = require('./lib/analyze');
 const { buildChunks, toJsonl } = require('./lib/ragChunks');
 const { generateDesignDoc } = require('./lib/designDoc');
 
-const target = process.argv[2] || process.env.JOGET_TEST_JWA || '/Users/sainm/work/demo/joget/APP_RFQ-1-20260131145603.jwa';
+const FIXTURES = path.join(__dirname, 'fixtures');
+const target = process.argv[2] || process.env.JOGET_TEST_JWA || path.join(FIXTURES, 'rfq', 'APP_RFQ-1-20260131145603.jwa');
 const out = process.argv[3] || '/tmp/t1out';
 
 const r = analyze(target, out);

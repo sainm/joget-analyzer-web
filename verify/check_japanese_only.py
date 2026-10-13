@@ -37,8 +37,10 @@ SIMPLIFIED_ONLY = set(
 CHINESE_PUNCT = {'，': '全角カンマ U+FF0C'}
 
 TEXT_EXT = ('.js', '.jsx', '.mjs', '.cjs', '.html', '.css', '.md', '.json', '.gitignore', '.py')
-# verify/ は本スクリプト自身（簡体字の一覧を含む）なので除外する
-SKIP_DIRS = {'.git', 'node_modules', 'dist', 'data', 'verify'}
+# verify/ は本スクリプト自身（簡体字の一覧を含む）なので除外する。
+# fixtures/ は解析対象のサンプル（第三者の Apache-2.0 素材 ＋ 中国語の業務データ）であり、
+# 本ツールの成果物ではないため対象外。
+SKIP_DIRS = {'.git', 'node_modules', 'dist', 'data', 'verify', 'fixtures'}
 
 
 def walk(target):

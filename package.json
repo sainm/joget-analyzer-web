@@ -11,7 +11,10 @@
     "preview": "vite build && node server.js",
     "verify:lang": "python3 verify/check_japanese_only.py",
     "test:ui": "node test-ui.mjs",
-    "test:engine": "node test-engine.js"
+    "test:engine": "node test-engine.js",
+    "test:mermaid": "node test-mermaid.mjs",
+    "test:plugin": "node test-plugin.js",
+    "test:correlate": "node test-correlate.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

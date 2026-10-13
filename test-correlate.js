@@ -12,7 +12,7 @@ const { generateDesignDoc } = require('./lib/designDoc');
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT = process.env.JOGET_PROJECT || '/Users/sainm/work/demo/joget/enhanced-json-api-main';
+const PROJECT = process.env.JOGET_PROJECT || path.join(__dirname, 'fixtures', 'enhanced-json-api-main');
 const JWA = process.env.JOGET_TEST_JWA || path.join(PROJECT, 'APP_EnhancedJSONAPISampleApp-1-20241101165150.jwa');
 const OUT = './data/test3/out';
 

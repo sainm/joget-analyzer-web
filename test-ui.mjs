@@ -22,9 +22,13 @@ if (!exe) { console.error('Chromium が見つかりません'); process.exit(1);
 const OUT = path.join(process.cwd(), 'data', 'shots');
 mkdirSync(OUT, { recursive: true });
 
-const PROJECT = process.env.JOGET_PROJECT || '/Users/sainm/work/demo/joget/enhanced-json-api-main';
-const WORKSPACE = path.dirname(PROJECT);
+// 同梱の Apache-2.0 サンプルを既定の解析対象にする（顧客アプリは同梱しない）
+const PROJECT = process.env.JOGET_PROJECT || path.join(process.cwd(), 'fixtures', 'enhanced-json-api-main');
 const SELF = process.cwd();
+// 同梱フィクスチャの置き場（常にこのパス）
+const FIXTURES = path.join(process.cwd(), 'fixtures');
+// 検証対象プロジェクトの親ディレクトリ。既定では FIXTURES と同じになる
+const WORKSPACE = path.dirname(PROJECT);
 const BASE = 'http://localhost:3000';
 const errors = [];
 const failedRequests = [];
@@ -170,12 +174,33 @@ try {
   const scope = async (p) => fetch(`${BASE}/api/fs/discover?path=${encodeURIComponent(p)}`).then((r) => r.json());
   const self = await scope(SELF);
   check('ツール自身のディレクトリは拒否', self.kind === 'invalid');
-  console.log('    エラーメッセージ:', String(self.error || '').slice(0, 60));
+  console.log('    エラーメッセージ:', String(self.error || '').slice(0, 70));
   check('拒否メッセージが日本語', /解析ツール自身/.test(String(self.error || '')));
-  const ws = await scope(WORKSPACE);
-  check('ワークスペースの親ディレクトリ → 複数プロジェクトと判定', ws.ambiguous === true);
-  console.log(`    projects=${(ws.projects || []).length}`);
-  check('複数プロジェクト時は自動選択しない', !ws.chosen);
+
+  // fixtures/ は「ツールの中」にあるが、ツールのコードではなく解析対象のサンプルなので
+  // 自己拒否の例外になっている。ここを検証しないと、素材を置いても解析できない。
+  //
+  // 配下のプロジェクト数は手元のフィクスチャ次第（顧客アプリは同梱しない）なので、
+  // 「2 個である」ではなく「個数と曖昧判定が一致しているか」という不変条件で検証する。
+  // これで、同梱サンプルだけの環境（プロジェクト 1 個）でも成立する。
+  const fx = await scope(FIXTURES);
+  const n = (fx.projects || []).length;
+  check('fixtures/ は例外として解析可能（自己拒否の対象外）', fx.kind !== 'invalid');
+  console.log(`    fixtures/ 直下のプロジェクト数=${n}（同梱サンプルのみの環境では 1）`);
+  check('fixtures/ 配下のプロジェクトが認識されている', n >= 1);
+  check('プロジェクト数と曖昧判定が一致', fx.ambiguous === (n > 1));
+  check('複数プロジェクト時は自動選択しない', n <= 1 || !fx.chosen);
+  check('単一プロジェクト時は自動選択する', n !== 1 || !!fx.chosen);
+  check(
+    '同梱の Apache-2.0 サンプルをプロジェクトとして認識',
+    (fx.projects || []).some((p) => /enhanced-json-api-main/.test(String(p.root))),
+  );
+
+  // 検証対象の親ディレクトリ。既定では fixtures/ と同一なので、重複クエリを避けて再利用する
+  const wsParent = await (WORKSPACE === FIXTURES ? Promise.resolve(fx) : scope(WORKSPACE));
+  check('親ディレクトリ直下でも曖昧判定が同じ', wsParent.ambiguous === fx.ambiguous);
+  console.log(`    projects=${(wsParent.projects || []).length}`);
+
   const one = await scope(PROJECT);
   check('単一プロジェクトは正常に選択', one.ambiguous === false && !!one.chosen && one.projects.length === 1);
   check('プロジェクト内の jwa と maven が同一プロジェクトに属する', one.chosen && one.chosen.mavenRoot === one.chosen.root);
