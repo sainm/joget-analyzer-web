@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-50: #f6f7f9;
+  --color-ink-100: #eceef2;
+  --color-ink-200: #d6dae2;
+  --color-ink-300: #b3bac7;
+  --color-ink-400: #8b95a7;
+  --color-ink-500: #6b7688;
+  --color-ink-600: #545d6d;
+  --color-ink-700: #434a57;
+  --color-ink-800: #2c313b;
+  --color-ink-900: #1a1d24;
+
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe8ff;
+  --color-brand-300: #9dbcff;
+  --color-brand-500: #3b7bff;
+  --color-brand-600: #2a63e0;
+  --color-brand-700: #1f4cb4;
+
+  --color-jade-500: #12a594;
+  --color-amber-500: #e0930c;
+  --color-rose-500: #e5484d;
+
+  --font-sans: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-ink-50);
+  color: var(--color-ink-800);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条 */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-ink-200); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-ink-300); }
+
+/* 设计书 markdown 排版 */
+.doc-md h1 { font-size: 1.6rem; font-weight: 700; margin: 1.4rem 0 .8rem; }
+.doc-md h2 { font-size: 1.25rem; font-weight: 700; margin: 1.6rem 0 .6rem; padding-bottom: .35rem; border-bottom: 1px solid var(--color-ink-200); }
+.doc-md h3 { font-size: 1.05rem; font-weight: 600; margin: 1.1rem 0 .5rem; }
+.doc-md p { margin: .5rem 0; line-height: 1.75; }
+.doc-md ul, .doc-md ol { margin: .5rem 0 .5rem 1.25rem; line-height: 1.75; }
+.doc-md ul { list-style: disc; }
+.doc-md ol { list-style: decimal; }
+.doc-md code { background: var(--color-ink-100); padding: .1rem .35rem; border-radius: 4px; font-family: var(--font-mono); font-size: .85em; }
+.doc-md pre { background: var(--color-ink-900); color: #e6e9ef; padding: .9rem 1rem; border-radius: 10px; overflow: auto; margin: .7rem 0; }
+.doc-md pre code { background: transparent; color: inherit; padding: 0; }
+.doc-md table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: .85rem; }
+.doc-md th, .doc-md td { border: 1px solid var(--color-ink-200); padding: .4rem .6rem; text-align: left; vertical-align: top; }
+.doc-md th { background: var(--color-ink-100); font-weight: 600; }
+.doc-md tr:nth-child(even) td { background: #fafbfc; }
+.doc-md blockquote { border-left: 3px solid var(--color-brand-300); padding: .2rem .9rem; color: var(--color-ink-600); margin: .7rem 0; }
+
+/* mermaid 容器 */
+.mermaid-host svg { max-width: 100%; height: auto; }
