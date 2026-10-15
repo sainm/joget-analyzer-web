@@ -70,6 +70,26 @@ for (const ds of DATASETS) {
     プラグイン呼び出し関係図: callGraphChart(manifest),
   };
 
+  // 空プレースホルダの検出。
+  // 各生成器は「対象が無い」とき 1 ノードだけの図を返すため、パースは通ってしまう。
+  // 引数の取り違え（summary と summary.xpdl など）はこの検査がないと全部 green のまま通る。
+  // ただし「元データが本当に無い」場合は正当な空状態なので、データの有無と対にして判定する。
+  const hasFlow = (summary.xpdl?.processes || []).some((p) => (p.activities || []).length > 0);
+  const hasCall = !!(manifest && (manifest.callGraph?.nodes || []).length > 0);
+  const hasImpact = Object.keys(summary.impact?.writeMap || {}).length + Object.keys(summary.impact?.readMap || {}).length > 0;
+  const SUSPECT = [
+    ['業務フロー図', cases['業務フロー図'], hasFlow],
+    ['プラグイン呼び出し関係図', cases['プラグイン呼び出し関係図'], hasCall],
+    ['読み書き影響図', cases['読み書き影響図'], hasImpact],
+  ];
+  for (const [name, code, shouldHaveContent] of SUSPECT) {
+    if (shouldHaveContent && /見つかりません|ありません/.test(code)) {
+      failed++;
+      console.log(`  ✗ ${name}  元データはあるのに空のプレースホルダです（引数の取り違えを確認）`);
+      console.log(code);
+    }
+  }
+
   console.log(`\n── ${ds.name} ──`);
   for (const [name, code] of Object.entries(cases)) {
     try {

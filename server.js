@@ -62,6 +62,26 @@ function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } ca
 function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return ''; } }
 function fileSize(dir, name) { try { return fs.statSync(path.join(dir, name)).size; } catch (e) { return 0; } }
 
+/**
+ * 保存済み run の成果物一覧。
+ * 解析直後（finalize）と再読み込み（/api/runs/:id）で同じ一覧を出すため、
+ * ラベル定義はここに 1 つだけ置く。
+ */
+const ARTIFACT_LABELS = [
+  ['app_summary.json', 'アプリ概要 JSON'],
+  ['analysis_inputs.json', '不足項目テンプレート JSON'],
+  ['design_doc.md', '設計書'],
+  ['rag_chunks.jsonl', 'RAG チャンク JSONL'],
+  ['plugin_manifest.json', 'プラグイン一覧 JSON'],
+  ['correlation.json', 'アプリ↔ソース突合 JSON'],
+];
+
+function artifactList(outDir) {
+  return ARTIFACT_LABELS
+    .filter(([name]) => fs.existsSync(path.join(outDir, name)))
+    .map(([name, label]) => ({ name, label, size: fileSize(outDir, name) }));
+}
+
 function chunkStats(chunks) {
   const byType = {};
   let total = 0;
@@ -127,19 +147,9 @@ function finalize({ id, rd, outDir, summary, stats, manifest, startedAt, extraMe
     designDoc: doc,
     chunks,
     chunkStats: chunkStats(chunks),
-    artifacts: [
-      { name: 'app_summary.json', label: 'アプリ概要 JSON', size: fileSize(outDir, 'app_summary.json') },
-      { name: 'analysis_inputs.json', label: '不足項目テンプレート JSON', size: fileSize(outDir, 'analysis_inputs.json') },
-      { name: 'design_doc.md', label: '設計書', size: fileSize(outDir, 'design_doc.md') },
-      { name: 'rag_chunks.jsonl', label: 'RAG チャンク JSONL', size: fileSize(outDir, 'rag_chunks.jsonl') },
-      ...(manifest && !manifest.error
-        ? [
-            { name: 'plugin_manifest.json', label: 'プラグイン一覧 JSON', size: fileSize(outDir, 'plugin_manifest.json') },
-            { name: 'correlation.json', label: 'アプリ↔ソース突合 JSON', size: fileSize(outDir, 'correlation.json') },
-          ]
-        : []),
-    ],
-    ...extraResp,
+    // 成果物一覧はディスクの実体から作る（manifest の有無で出し分けていたが、
+    // ファイルが無ければ出さない方が正確。再読み込み時も同じ一覧になる）
+    artifacts: artifactList(outDir),    ...extraResp,
   };
 }
 
@@ -361,6 +371,7 @@ app.get('/api/runs/:id', (req, res) => {
     designDoc,
     chunks,
     chunkStats: chunkStats(chunks),
+    artifacts: artifactList(outDir),
     project: chosenJwa ? { root: meta && meta.inputPath, jwaFiles: [{ rel: path.basename(chosenJwa) }] } : null,
   });
 });

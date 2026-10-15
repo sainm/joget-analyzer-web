@@ -8,7 +8,7 @@ function ensureInit() {
     startOnLoad: false,
     securityLevel: 'loose',
     theme: 'base',
-    fontFamily: 'Inter, "PingFang SC", system-ui, sans-serif',
+    fontFamily: 'Inter, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif',
     themeVariables: {
       primaryColor: '#eef4ff',
       primaryBorderColor: '#2a63e0',

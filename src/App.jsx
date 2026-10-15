@@ -1,30 +1,34 @@
-import React, { useEffect, useState } from 'react';
-import { analyze, analyzeProject, listRuns, getRun, downloadUrl } from './lib/api.js';
+import React, { useEffect, useMemo, useState } from 'react';
+import { analyze, analyzeProject, listRuns, getRun } from './lib/api.js';
 import { t } from './i18n.js';
+import { buildObjectModel, OBJ, objTypeLabel } from './lib/objectModel.js';
+import { NAV, SideNav, ToolBar, PageHead } from './components/Shell.jsx';
 import Uploader from './components/Uploader.jsx';
-import Overview from './components/Overview.jsx';
-import Impact from './components/Impact.jsx';
+import SystemOverview from './components/SystemOverview.jsx';
+import ObjectExplorer from './components/ObjectExplorer.jsx';
+import ProcessPage from './components/ProcessPage.jsx';
+import DataModelPage from './components/DataModelPage.jsx';
+import RelationExplorer from './components/RelationExplorer.jsx';
+import CheckCenter from './components/CheckCenter.jsx';
+import QualityCenter from './components/QualityCenter.jsx';
+import DesignCenter from './components/DesignCenter.jsx';
 import Plugins from './components/Plugins.jsx';
 import Correlation from './components/Correlation.jsx';
-import Graphs from './components/Graphs.jsx';
-import DesignDoc from './components/DesignDoc.jsx';
-import Chunks from './components/Chunks.jsx';
+import { EmptyNote } from './components/Common.jsx';
 
-/** タブは key と表示条件のみを宣言し、文言は tab.<key> から引く */
-const TABS = [
-  { key: 'overview' },
-  { key: 'impact' },
-  { key: 'correlation', needCorrelation: true },
-  { key: 'plugins' },
-  { key: 'graphs' },
-  { key: 'doc' },
-  { key: 'chunks' },
-];
-
+/**
+ * 画面の入口。
+ *
+ * 解析結果的心理モデル（app_summary / plugin_manifest / correlation）は
+ * そのまま受け取り、派生はこの層の objectModel に一度だけ行う。
+ * 各画面は同じ model を読むため、画面間で結論が食い違うことはない。
+ */
 export default function App() {
   const [runs, setRuns] = useState([]);
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState('overview');
+  const [view, setView] = useState({ key: 'overview' });
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,13 +36,20 @@ export default function App() {
     listRuns().then((r) => setRuns(r.runs || [])).catch(() => {});
   }, []);
 
+  const model = useMemo(() => {
+    if (!data?.summary) return null;
+    return buildObjectModel({ summary: data.summary, correlation: data.correlation });
+  }, [data]);
+
   async function run(fn) {
     setBusy(true);
     setError('');
     try {
       const res = await fn();
       setData(res);
-      setTab('overview');
+      setView({ key: 'overview' });
+      setSelected(null);
+      setSearch('');
       listRuns().then((r) => setRuns(r.runs || [])).catch(() => {});
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) {
@@ -52,160 +63,214 @@ export default function App() {
   const handleAnalyzeProject = ({ path: p }) => run(() => analyzeProject({ path: p }));
   const handleOpenRun = (id) => run(() => getRun(id));
 
-  const summary = data?.summary;
-  const hasCorrelation = !!(data?.correlation && data.correlation.hasSource);
-  const tabs = TABS.filter((x) => !x.needCorrelation || hasCorrelation);
-  const activeTab = tabs.some((x) => x.key === tab) ? tab : 'overview';
+  // オブジェクト詳細への遷移は、どの画面からでも同じ入口を通す
+  function goToObject(key) {
+    const obj = model?.byKey.get(key);
+    if (!obj) return;
+    setSelected(key);
+    const navKey =
+      obj.type === OBJ.PROCESS || obj.type === OBJ.ACTIVITY ? 'process'
+        : obj.type === OBJ.TABLE || obj.type === OBJ.COLUMN || obj.type === OBJ.SQL || obj.type === OBJ.DATASOURCE ? 'datamodel'
+          : obj.type === OBJ.PLUGIN ? 'plugins'
+            : obj.type === OBJ.MENU ? 'menus'
+              : obj.type === OBJ.FORM || obj.type === OBJ.FIELD ? 'forms'
+                : obj.type === OBJ.LIST ? 'lists'
+                  : 'objects';
+    setView({ key: navKey });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function navigate(next) {
+    setView(next);
+    if (next.key !== 'objects') setSelected(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const hasCorrelation = !!data?.correlation && data.correlation.hasSource;
+  const counts = model
+    ? {
+        quality: model.unconfirmed.length || undefined,
+        objects: model.stats.total,
+        menus: model.stats.byType[OBJ.MENU] || undefined,
+        forms: model.stats.byType[OBJ.FORM] || undefined,
+        lists: model.stats.byType[OBJ.LIST] || undefined,
+        process: model.stats.byType[OBJ.PROCESS] || undefined,
+        datamodel: model.stats.byType[OBJ.TABLE] || undefined,
+        plugins: model.stats.byType[OBJ.PLUGIN] || undefined,
+        checks: model.stats.checks.error + model.stats.checks.warn || undefined,
+      }
+    : {};
+
+  if (!data) {
+    return (
+      <div className="min-h-full">
+        <TopBarOnly onReanalyze={() => {}} />
+        <main className="mx-auto max-w-[1100px] px-5 py-8">
+          {error && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+              <b>{t('app.failed')}</b> {error}
+            </div>
+          )}
+          <Uploader onAnalyze={handleAnalyze} onAnalyzeProject={handleAnalyzeProject} busy={busy} runs={runs} onOpenRun={handleOpenRun} />
+          {busy && <div className="mt-5 overflow-hidden rounded-full bg-ink-100"><div className="h-1.5 w-1/3 animate-pulse rounded-full bg-brand-500" /></div>}
+        </main>
+      </div>
+    );
+  }
+
+  const summary = data.summary;
+  const globalHits = search.trim() ? searchAll(model, search.trim()) : [];
 
   return (
-    <div className="min-h-full">
-      <header className="sticky top-0 z-20 border-b border-ink-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex max-w-[1400px] items-center gap-4 px-5 py-3">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500 text-sm font-bold text-white">J</div>
-            <div>
-              <h1 className="whitespace-nowrap text-[15px] font-bold leading-tight text-ink-900">{t('app.title')}</h1>
-              <p className="text-[11px] leading-tight text-ink-400">{t('app.subtitle')}</p>
-            </div>
-          </div>
+    <div className="flex h-screen flex-col">
+      <ToolBar
+        meta={data.meta}
+        search={search}
+        onSearch={setSearch}
+        onReanalyze={() => { setData(null); setError(''); }}
+        canSearch
+      />
 
-          {data && (
+      {/* 検索結果は、どの画面からでも同じ候補一覧として出す */}
+      {search.trim() && (
+        <div data-testid="global-search-results" className="max-h-[168px] shrink-0 overflow-y-auto border-b border-ink-200 bg-white px-5 py-2">
+          {globalHits.length === 0 ? (
+            <div className="py-2 text-[12px] text-ink-400">{t('sh.noResults')}</div>
+          ) : (
             <>
-              <nav className="ml-2 hidden gap-1 lg:flex">
-                {tabs.map((x) => (
-                  <button
-                    key={x.key}
-                    onClick={() => setTab(x.key)}
-                    className={`whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition ${
-                      activeTab === x.key ? 'bg-brand-50 text-brand-700' : 'text-ink-500 hover:bg-ink-100 hover:text-ink-700'
-                    }`}
-                  >
-                    {t(`tab.${x.key}`)}
-                  </button>
-                ))}
-              </nav>
-              <div className="ml-auto flex items-center gap-3">
-                <div className="hidden text-right sm:block">
-                  <div className="text-[13px] font-semibold text-ink-700">{data.meta?.appName}</div>
-                  <div className="max-w-[420px] truncate text-[11px] text-ink-400" title={data.meta?.projectRoot || data.meta?.inputPath || data.meta?.jwaName}>
-                    {data.meta?.elapsedMs}ms · {data.meta?.source === 'local' ? data.meta?.projectRoot || data.meta?.inputPath : data.meta?.jwaName}
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setData(null);
-                    setError('');
-                  }}
-                  className="shrink-0 whitespace-nowrap rounded-md border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-600 transition hover:bg-ink-50"
-                >
-                  {t('app.reanalyze')}
-                </button>
+              <div className="mb-1 text-[11px] text-ink-400">
+                {t('sh.results')} {globalHits.length} 件
               </div>
+              <ul className="flex flex-wrap gap-1.5">
+                {globalHits.slice(0, 40).map((o) => (
+                  <li key={o.key}>
+                    <button
+                      onClick={() => { setSearch(''); goToObject(o.key); }}
+                      className="flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                    >
+                      <span className="rounded bg-ink-100 px-1 text-[10px] text-ink-500">{objTypeLabel(o.type)}</span>
+                      <span className="max-w-[220px] truncate">{o.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </>
           )}
         </div>
+      )}
 
-        {data && (
-          <div className="flex gap-1 overflow-auto border-t border-ink-100 px-5 py-2 lg:hidden">
-            {tabs.map((x) => (
-              <button
-                key={x.key}
-                onClick={() => setTab(x.key)}
-                className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition ${
-                  activeTab === x.key ? 'bg-brand-50 text-brand-700' : 'text-ink-500'
-                }`}
-              >
-                {t(`tab.${x.key}`)}
-              </button>
-            ))}
-          </div>
-        )}
-      </header>
+      <div className="flex min-h-0 flex-1">
+        <div className="hidden lg:block">
+          <SideNav view={view} onChange={navigate} counts={counts} />
+        </div>
 
-      <main className="mx-auto max-w-[1400px] px-5 py-6">
-        {error && (
-          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
-            <b>{t('app.failed')}</b>
-            {error}
-          </div>
-        )}
-
-        {!data ? (
-          <>
-            <Uploader
-              onAnalyze={handleAnalyze}
-              onAnalyzeProject={handleAnalyzeProject}
-              busy={busy}
-              runs={runs}
-              onOpenRun={handleOpenRun}
-            />
-            {busy && <LoadingBar />}
-          </>
-        ) : (
-          <>
-            {summary?.noApp && (
-              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                {t('app.noApp')}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[1500px] px-5 py-5">
+            {error && (
+              <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+                <b>{t('app.failed')}</b> {error}
               </div>
             )}
-            <Artifacts artifacts={data.artifacts} runId={data.meta?.id} />
-            <div className="mt-5">
-              {activeTab === 'overview' && <Overview summary={summary} stats={data.stats || data.meta?.stats} />}
-              {activeTab === 'impact' && <Impact summary={summary} />}
-              {activeTab === 'correlation' && hasCorrelation && <Correlation correlation={data.correlation} />}
-              {activeTab === 'plugins' && <Plugins summary={summary} manifest={data.manifest} />}
-              {activeTab === 'graphs' && <Graphs summary={summary} manifest={data.manifest} correlation={data.correlation} />}
-              {activeTab === 'doc' && <DesignDoc designDoc={data.designDoc} runId={data.meta?.id} />}
-              {activeTab === 'chunks' && (
-                <Chunks chunks={data.chunks} chunkStats={data.chunkStats} runId={data.meta?.id} />
-              )}
-            </div>
+            {summary?.noApp && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{t('app.noApp')}</div>
+            )}
+            {renderView()}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+
+  function renderView() {
+    if (!model) return <EmptyNote>解析結果を読み込んでいます。</EmptyNote>;
+    switch (view.key) {
+      case 'overview':
+        return <SystemOverview model={model} summary={summary} onNavigate={navigate} onSelectObject={goToObject} />;
+      case 'objects':
+      case 'menus':
+      case 'forms':
+      case 'lists':
+        return (
+          <ObjectExplorer
+            model={model}
+            view={navMeta(view.key)}
+            selectedKey={selected}
+            onSelect={setSelected}
+          />
+        );
+      case 'process':
+        return <ProcessPage model={model} summary={summary} onSelectObject={goToObject} />;
+      case 'datamodel':
+        return <DataModelPage model={model} summary={summary} manifest={data.manifest} onSelectObject={goToObject} />;
+      case 'plugins':
+        return hasCorrelation ? (
+          <div className="space-y-4">
+            <PageHead title={t('nav.plugins')} lead="アプリが参照するプラグインと、同一プロジェクト内のソース定義を突き合わせた結果です。ソース未提供のクラスはプラットフォーム標準として分離しています。" />
+            <Plugins summary={summary} manifest={data.manifest} />
+            <Correlation correlation={data.correlation} />
+          </div>
+        ) : (
+          <>
+            <PageHead title={t('nav.plugins')} lead="この解析にはプラグインソースが含まれていません。プラットフォーム標準クラスとの突合は行えません。" />
+            <Plugins summary={summary} manifest={data.manifest} />
           </>
-        )}
-      </main>
+        );
+      case 'relations':
+        return <RelationExplorer model={model} onSelectObject={goToObject} />;
+      case 'checks':
+        return <CheckCenter model={model} onSelectObject={goToObject} />;
+      case 'quality':
+        return <QualityCenter model={model} onSelectObject={goToObject} />;
+      case 'doc':
+        return (
+          <DesignCenter
+            designDoc={data.designDoc}
+            runId={data.meta?.id}
+            model={model}
+            artifacts={data.artifacts}
+            chunks={data.chunks}
+            chunkStats={data.chunkStats}
+            onSelectObject={goToObject}
+          />
+        );
+      default:
+        return <SystemOverview model={model} summary={summary} onNavigate={navigate} onSelectObject={goToObject} />;
+    }
+  }
+}
 
-      <footer className="mx-auto max-w-[1400px] px-5 pb-10 text-center text-[11px] text-ink-300">
-        {t('app.footer')}
-      </footer>
-    </div>
+/** 種別固定の入口ごとの見出し */
+function navMeta(key) {
+  return {
+    menus: { type: OBJ.MENU, title: t('nav.menus'), lead: 'ユーザー入口の一覧です。ターゲットを持たない種別は、画面の実態が静的には確認できないため「未確認」と表示します。' },
+    forms: { type: OBJ.FORM, title: t('nav.forms'), lead: 'フォーム定義と項目の一覧です。項目を選ぶと、規約で生成されるカラムとの対応を確認できます。' },
+    lists: { type: OBJ.LIST, title: t('nav.lists'), lead: 'データリストの列定義・絞り込み条件・並べ替え・ページング設定です。実行時に組み立てられるクエリは取得できません。' },
+  }[key];
+}
+
+/** 解析前の画面で使う、簡略化したヘッダ */
+function TopBarOnly({ onReanalyze }) {
+  return (
+    <header className="shrink-0 border-b border-ink-200 bg-white">
+      <div className="mx-auto flex max-w-[1100px] items-center gap-2.5 px-5 py-3">
+        <div className="grid h-7 w-7 place-items-center rounded-md bg-brand-500 text-[13px] font-bold text-white">J</div>
+        <div className="leading-tight">
+          <h1 className="text-[14px] font-bold text-ink-900">{t('app.title')}</h1>
+          <p className="text-[10px] text-ink-400">{t('app.subtitle')}</p>
+        </div>
+      </div>
+    </header>
   );
 }
 
-/** 生成物はファイル名 → 表示名の対応表で日本語化する */
-const ARTIFACT_LABEL = {
-  'app_summary.json': 'art.appSummary',
-  'analysis_inputs.json': 'art.gapTemplate',
-  'design_doc.md': 'art.doc',
-  'rag_chunks.jsonl': 'art.chunks',
-  'plugin_manifest.json': 'art.manifest',
-  'correlation.json': 'art.correlation',
-};
-
-function Artifacts({ artifacts, runId }) {
-  if (!artifacts || !artifacts.length) return null;
-  const fmt = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`);
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-ink-200 bg-white px-4 py-3">
-      <span className="text-xs font-semibold text-ink-500">{t('app.artifacts')}</span>
-      {artifacts.map((a) => (
-        <a
-          key={a.name}
-          href={downloadUrl(runId, a.name)}
-          className="group inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2.5 py-1 text-[12px] text-ink-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-          title={a.name}
-        >
-          <span>{ARTIFACT_LABEL[a.name] ? t(ARTIFACT_LABEL[a.name]) : a.label}</span>
-          <span className="text-[10px] text-ink-300 group-hover:text-brand-300">{fmt(a.size)}</span>
-        </a>
-      ))}
-    </div>
-  );
-}
-
-function LoadingBar() {
-  return (
-    <div className="mt-5 overflow-hidden rounded-full bg-ink-100">
-      <div className="h-1.5 w-1/3 animate-pulse rounded-full bg-brand-500" />
-    </div>
+/** 全局検索。名称・ID・要約・関連先を対象にする */
+function searchAll(model, needle) {
+  const n = needle.toLowerCase();
+  return model.objects.filter(
+    (o) =>
+      o.name.toLowerCase().includes(n) ||
+      o.id.toLowerCase().includes(n) ||
+      o.brief.toLowerCase().includes(n) ||
+      o.attrs.some((a) => String(a.v).toLowerCase().includes(n)),
   );
 }
