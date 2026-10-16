@@ -25,9 +25,10 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
+const { scanPluginSource } = require('./lib/pluginScan');
 const { generateDesignDoc } = require('./lib/designDoc');
 
 const PROJECT = process.env.JOGET_PROJECT || path.join(process.cwd(), 'fixtures', 'enhanced-json-api-main');
@@ -42,8 +43,8 @@ console.log(`── 対象: ${path.relative(process.cwd(), PROJECT)} ──`);
 
 /* 解析結果をその場で生成する（前回の解析結果に依存しない）。
  * .jwa は 1 つだけ見つかる前提で、ファイル名は固定しない
- * （固定するとBaker ール出力のファイル名が変わった瞬間に
- *  テストが静かにスキップし、誰も気づかないまま門禁が空Iamになる）。 */
+ * （固定すると、別のバッチの出力だと誤認してテストが静かにスキップし、
+ *  誰も気づかないまま門禁が空回りになる）。 */
 const jwa = (function findJwa(dir) {
   const flat = fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith('.jwa'));
   if (flat) return path.join(dir, flat);
@@ -62,14 +63,38 @@ console.log(`   入力: ${path.relative(process.cwd(), jwa)}`);
 
 let summary;
 let correlation = null;
+let manifest = null;
 try {
   const r = analyze(jwa, path.join(process.cwd(), 'data', 'object-model-test'));
   summary = r.summary;
-  correlation = correlate(r.summary, PROJECT);
+  /* correlate() が受け取るのは plugin_manifest（スキャン結果）であり、
+   * ディレクトリパスではない。パスを渡すと manifest.components が undefined に
+   * なり hasSource=false に黙って degrade し、「ソースがある」経路
+   * （ソース一致・宣言済み設定項目・無効設定の検出）が門から落ちる。
+   * 実際にそうなっていたため、走査はここで明示的に行う。 */
+  try {
+    manifest = scanPluginSource(PROJECT);
+  } catch (e) {
+    console.log(`  （プラグインソースの走査に失敗: ${e.message}。突合なしで続行）`);
+  }
+  correlation = correlate(summary, manifest);
 } catch (e) {
   console.log(`スキップ（解析に失敗: ${e.message}）`);
   process.exit(0);
 }
+
+/* テスト装置自身のチェック。
+ * 走査でコンポーネントが得られているのに突合が無源になっていたら、
+ * 以下の「ソース一致」系の検査はすべて空振りする（門が緑でも何も見ていない）。
+ * 門が門であることを、門自身で確かめる。
+ * 参考: manifest としてディレクトリパスを渡すと components が undefined になり
+ * * この検査が失敗する。 */
+const hasPluginSource = !!(correlation && correlation.hasSource);
+const scannedComponents = (manifest && manifest.components) || [];
+console.log(`  突合: ${hasPluginSource ? `ソースあり（コンポーネント ${scannedComponents.length} 件）` : 'ソースなし（.jwa 単体と同等）'}`);
+ok('走査したコンポーネントがあるなら突合が有源になる',
+  scannedComponents.length === 0 || hasPluginSource === true,
+  `コンポーネント ${scannedComponents.length} 件を走査したのに hasSource=${hasPluginSource}（manifest の渡し方疑い）`);
 
 const m = buildObjectModel({ summary, correlation });
 
@@ -137,31 +162,99 @@ ok('カラム→フォーム項目の関連が解決している', cols.length >
  * 分離されるが、それを理由にオブジェクトモデルから落とすと、
  * 一覧に出るのに開けない、という壊れ方が静かに起きる。
  * 参考: addPlugin がオブジェクトを key ではなく「オブジェクト」で返すと、
- * 関連も注記もすべて宙に消える（壊れたリンクは増えないため検出できない）。 */
+ * 関連も注記もすべて宙に消える（壊れたリンクは増えないため検出できない）。
+ *
+ * 集合の基準は「アプリ定義が参照するクラス」（summary.plugin_refs）である。
+ * ソースが無いプロジェクトでは突合の材料自体が存在しないが、
+ * 「アプリが参照している」ことは .jwa だけで確定している。
+ * 従来は correlation のバケットだけから作っていたため、
+ * ソース未提供のクラスに一律「プラットフォーム標準」という brief が付いたり、
+ * deadConfig の情報が重複排除で無言で捨てられたりしていた。 */
 const plugins = m.objects.filter((o) => o.type === OBJ.PLUGIN);
 const referencedClasses = new Set([
   ...(correlation?.bindings || []).map((b) => b.className),
   ...(correlation?.deadConfig || []).map((d) => d.className),
   ...(correlation?.platform || []).map((p) => p.className),
 ]);
+const appRefClasses = new Set([].concat(
+  ...Object.values(summary.plugin_refs || {}).map((b) => Object.keys(b || {})),
+));
 const pluginIds = new Set(plugins.map((p) => p.id));
 const missingPlugin = [...referencedClasses].filter((c) => !pluginIds.has(c));
-console.log(`  プラグイン ${plugins.length} 参照クラス ${referencedClasses.size} / 関連を持つ ${plugins.filter((p) => p.links.length > 0).length}`);
+const missingFromApp = [...appRefClasses].filter((c) => !pluginIds.has(c));
+const extraInModel = [...pluginIds].filter((c) => !appRefClasses.has(c) && !referencedClasses.has(c));
+console.log(`  プラグイン ${plugins.length} / アプリ定義の参照 ${appRefClasses.size} / 突合の参照 ${referencedClasses.size} / 関連を持つ ${plugins.filter((p) => p.links.length > 0).length}`);
 ok('参照されているプラグインがすべてオブジェクトとして存在する',
   missingPlugin.length === 0, `${missingPlugin.length} 件が欠落: ${missingPlugin.slice(0, 3).join(', ')}`);
-ok('プラグイン一覧の件数が参照クラス数と一致する',
-  plugins.length === referencedClasses.size,
-  `一覧 ${plugins.length} / 参照 ${referencedClasses.size}`);
+ok('アプリ定義が参照するクラスがすべてオブジェクトとして存在する（ソース有無とは無関係）',
+  missingFromApp.length === 0, `${missingFromApp.length} 件が欠落: ${missingFromApp.slice(0, 3).join(', ')}`);
+ok('プラグイン一覧にアプリ定義にも突合にも出てこないクラスが混ざらない',
+  extraInModel.length === 0, `余分: ${extraInModel.slice(0, 3).join(', ')}`);
+
+/* 種別はアプリ定義のバケット（builtin / marketplace / enterprise / custom）で
+ * 決まる。ソース未提供の marketplace / custom を「プラットフォーム標準」と
+ * 呼ぶと、部署上の依存の有無を誤認させる。 */
+const PLUGIN_CATS = ['builtin', 'marketplace', 'enterprise', 'custom'];
+const badCategory = plugins.filter((p) => !p.plugin || !PLUGIN_CATS.includes(p.plugin.category));
+const mislabeled = plugins.filter((p) =>
+  /プラットフォーム標準/.test(p.brief) && !['builtin', 'enterprise'].includes(p.plugin?.category));
+ok('すべてのプラグインに種別の事実がある', badCategory.length === 0,
+  `${badCategory.length} 件: ${badCategory.slice(0, 3).map((p) => p.id).join(', ')}`);
+ok('標準ではないクラスを「プラットフォーム標準」と呼ばない', mislabeled.length === 0,
+  mislabeled.slice(0, 3).map((p) => `${p.id}[${p.plugin?.category}]`).join(', '));
+
+/* ソース未提供のクラスは「ソース未提供（種別）」と正直に書く。
+ * 「ソースなし」を「標準」でごまかすと、調べるべき対象が見えなくなる。 */
+const noSrc = plugins.filter((p) => p.plugin && p.plugin.inSource === false);
+ok('ソース未提供のプラグインは種別を添えて「ソース未提供」と表示する',
+  noSrc.every((p) => p.brief.includes('ソース未提供') || p.brief.includes('プラットフォーム標準')),
+  noSrc.filter((p) => !/ソース未提供|プラットフォーム標準/.test(p.brief)).slice(0, 3).map((p) => p.id).join(', '));
+
+/* deadConfig の補全。
+ * deadConfig のクラスは必ず bindings にも現れるため、補わずに addPlugin を
+ * 呼んでも 2 回目は何も作らない（無言で捨てられる）。「アプリが設定したが
+ * ソースで宣言なし」は最も先に見るべき結論なので、属性に現れなければならない。 */
+const deadEnriched = (correlation?.deadConfig || []).map((d) => ({
+  d,
+  o: m.byKey.get(`${OBJ.PLUGIN}:${d.className}`),
+}));
+ok('無効と確認された設定がプラグインの属性に現れる',
+  deadEnriched.every(({ d, o }) => !!o && o.attrs.some((a) => a.k === '無効と確認された設定')),
+  deadEnriched.filter(({ o }) => !o || !o.attrs.some((a) => a.k === '無効と確認された設定')).map(({ d }) => d.className).join(', '));
+
+/* 属性に [object Object] が残っていないこと。
+ * evidence.ref や属性値にオブジェクトをそのまま文字列化すると
+ * 「component [object Object]」といった表示になり、何のファイルか分からなくなる。 */
+const objStr = plugins.filter((p) => JSON.stringify(p).includes('[object Object]'));
+ok('プラグインの属性に [object Object] が残っていない', objStr.length === 0,
+  objStr.slice(0, 3).map((p) => p.id).join(', '));
 
 /* usedIn を持つプラグインは、宛先オブジェクトが存在する少なくとも 1 つ結び付ける。
  * 結び付けが 0 になる原因が「key をオブジェクトで返している」「関連を張る段階が早い」
- * のいずれの場合も、ここで落ちる。 */
+ * 「プラットフォーム標準だけを見ている」のいずれの場合も、ここで落ちる。
+ * 「フロント」は Userview 定義であり対応するオブジェクト種別がないため例外。 */
 const withUsedIn = plugins.filter((p) => (p.attrs.find((a) => a.k === '使用箇所')?.v || '—') !== '—');
+const frontOnly = (p) => (Array.isArray(p.plugin?.usedIn) ? p.plugin.usedIn : []).every((w) => String(w).startsWith('フロント'));
 const linkedFromUsedIn = withUsedIn.filter((p) => p.links.some((l) => l.type === 'target'));
-console.log(`  使用箇所を持つプラグイン ${withUsedIn.length} / そのうち関連あり ${linkedFromUsedIn.length}`);
-ok('使用箇所を持つプラグインには関連が 1 本以上ある',
-  withUsedIn.length === 0 || linkedFromUsedIn.length > 0,
-  `${withUsedIn.length} 件中 ${withUsedIn.length - linkedFromUsedIn.length} 件が関連 0 本`);
+const unlinkedNoReason = withUsedIn.filter((p) => !p.links.some((l) => l.type === 'target') && !frontOnly(p));
+console.log(`  使用箇所を持つプラグイン ${withUsedIn.length} / そのうち関連あり ${linkedFromUsedIn.length} / フロント限定 ${withUsedIn.filter(frontOnly).length}`);
+ok('使用箇所を持つプラグインには関連が 1 本以上ある（フロント限定を除く）',
+  unlinkedNoReason.length === 0,
+  `${unlinkedNoReason.length} 件が関連 0 本: ${unlinkedNoReason.slice(0, 3).map((p) => p.id).join(', ')}`);
+
+/* 突合結果が無い解析結果（correlation.json を書く以前の結果）でも、
+ * アプリ定義が参照するクラスはオブジェクトとして残る。
+ * 画面は data.correlation が無い場合も buildObjectModel を呼ぶため、
+ * ここが空だと「一覧に出るのに開けない」状態に戻る。 */
+const mNoCorr = buildObjectModel({ summary });
+const noCorrPlugins = mNoCorr.objects.filter((o) => o.type === OBJ.PLUGIN);
+const noCorrIds = new Set(noCorrPlugins.map((p) => p.id));
+ok('突合結果が無くてもアプリ定義の参照クラスがすべてオブジェクトとして存在する',
+  [...appRefClasses].every((c) => noCorrIds.has(c)),
+  `${appRefClasses.size - noCorrPlugins.length} 件が欠落`);
+ok('突合結果が無くても関連が解決する',
+  mNoCorr.unresolved.length === 0,
+  `${mNoCorr.unresolved.length} 件が未解決`);
 
 console.log('\n[3] 静的な検査結果');
 console.log(`  エラー ${m.stats.checks.error} / 警告 ${m.stats.checks.warn} / 情報 ${m.stats.checks.info}`);
@@ -189,7 +282,7 @@ console.log('\n[6] 設計書との対応（docAnchors ↔ 実際の見出し）'
 /**
  * docAnchors は「オブジェクト → 設計書のどの章」という対応である。
  * 生成側（lib/designDoc.js）と参照側（lib/objectModel.js）は
- * 見出しの語彙を lib/chapters.cjs で共有しているが、
+ * 見出しの語彙を lib/objectModel.js 内の 1 箇所で共有しているが、
  * 「片方だけ見出しの形式を変えた」状態は語彙の共有では防げない。
  * 実際に生成された設計書に対して照合できる形にして、ここで検証する。
  *
