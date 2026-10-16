@@ -384,6 +384,50 @@ ok('2.2 の参照回数がモデルの occurrences と一致する',
   plRows.filter((r) => String(m.byKey.get(`${OBJ.PLUGIN}:${r[1]}`)?.plugin?.occurrences || 0) !== r[2]).slice(0, 3).map((r) => `${r[1]}=${r[2]}`).join(', '));
 console.log(`  2.1 ${modRows.length} 行 / 2.2 ${plRows.length} 行（モデルのメニュー ${menuObjs.length}・プラグイン ${plugins.length} と突合）`);
 
+/* 5.1 に載るテーブルの集合もモデルと突き合わせる。
+ * 生成側が Object.entries(data) を独自に回していたため、画面のデータモデルと
+ * 設計書で「どのテーブルが存在するか」が食い違い得た。
+ * 見出しは **app_fd_xxx** なので、接頭辞で抽出する（他の太字と区別するため）。 */
+const tblRows = [...md.matchAll(/^\*\*(app_fd_[^*]+)\*\*/gm)].map((x) => x[1]);
+const tableIds = m.objects.filter((o) => o.type === OBJ.TABLE).map((o) => o.id);
+ok('5.1 に載るテーブルの集合がモデルと一致する',
+  tblRows.length === new Set(tblRows).size
+    && JSON.stringify([...tblRows].sort()) === JSON.stringify([...tableIds].sort()),
+  `設計書 ${tblRows.length} / モデル ${tableIds.length}`);
+
+/* tableModel が無い古い解析結果（data のみ）の扱い。
+ * 画面は保存された解析結果を読むため、この形が実在する
+ * （data/runs の既存結果にも tableModel 無しのものがあった）。
+ * tableModel が無い場合の fallback は data/*.json まで。フォーム定義からの
+ * 導出分は analyze 側（buildTableModel）の仕事なので、ここでは復元しない
+ * ——復元しようとすると objectModel に buildTableModel の二重実装が生まれる。
+ * そのためフォーム→テーブルの関連は、data が空の古い結果では未解決のまま。
+ * それは fallback 以前と同じで、fallback で悪化しないことを確かめる。 */
+const legacySummary = JSON.parse(JSON.stringify(summary));
+delete legacySummary.tableModel;
+const mLegacy = buildObjectModel({ summary: legacySummary, correlation });
+const legacyTables = mLegacy.objects.filter((o) => o.type === OBJ.TABLE).map((o) => o.id);
+const dataTableKeys = Object.keys(summary.data || {})
+  .map((k) => (k.startsWith('app_fd_') ? k : `app_fd_${k}`));
+ok('tableModel が無い解析結果では data のテーブルが解決する',
+  legacyTables.length === dataTableKeys.length
+    && dataTableKeys.every((k) => legacyTables.includes(k)),
+  `data ${dataTableKeys.length} / 解決 ${legacyTables.length}`);
+ok('tableModel が無い解析結果でも data のテーブルを指す SQL 関連は解決する',
+  mLegacy.unresolved.filter((u) => u.kind === 'link' && String(u.from || '').startsWith('sql:')).length === 0,
+  `${mLegacy.unresolved.filter((u) => u.kind === 'link' && String(u.from || '').startsWith('sql:')).length} 件が未解決`);
+ok('fallback はフォーム→テーブルの未解決を悪化させない',
+  mLegacy.unresolved.filter((u) => u.kind === 'link' && u.type === 'table').length
+    <= buildObjectModel({ summary: { ...summary, tableModel: {} }, correlation }).unresolved
+      .filter((u) => u.kind === 'link' && u.type === 'table').length,
+  `fallback あり ${mLegacy.unresolved.length} 件 / なし ${buildObjectModel({ summary: { ...summary, tableModel: {} }, correlation }).unresolved.length} 件`);
+const legacyDoc = generateDesignDoc(legacySummary, { correlation });
+const legacyRows = [...legacyDoc.matchAll(/^\*\*(app_fd_[^*]+)\*\*/gm)].map((x) => x[1]);
+ok('tableModel が無い解析結果の 5.1 もモデルと一致する',
+  JSON.stringify([...legacyRows].sort()) === JSON.stringify([...legacyTables].sort()),
+  `設計書 ${legacyRows.length} / モデル ${legacyTables.length}`);
+console.log(`  5.1 ${tblRows.length} テーブル（モデル ${tableIds.length} と突合）/ 旧結果 ${legacyTables.length} テーブル・未解決 ${mLegacy.unresolved.length} 件`);
+
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;
   console.log(`    ${hit ? ' ' : '!'} ${c.title} ← ${hit} オブジェクト`);
