@@ -112,6 +112,8 @@ export const T = {
   'pl.dsExternal': '外部',
   'pl.dsDefault': '既定DB',
   'pl.outerEmpty': 'パッケージ外参照なし',
+  'pl.countNote': 'この画面に出ている {n} クラスは、すべてオブジェクト一覧と全体検索にも同じ形で登録されています。',
+  'pl.countMismatch': '{n} 件のクラスはオブジェクト一覧に登録されていません。',
   'pl.srcTitle': 'プラグインソース一覧',
   'pl.components': 'コンポーネント',
   'pl.utilities': 'ユーティリティ',

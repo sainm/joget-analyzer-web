@@ -91,9 +91,35 @@ const MENU_TARGET = {
   ProcessListMenu: OBJ.LIST,
 };
 
+/**
+ * プラグイン種別の表示名。
+ * lib/correlate.js の CATEGORY_LABEL と同じ語彙にそろえる
+ * （ここで別の言い方をして、画面ごとに違う呼び方になるのを防ぐ）。
+ */
+const CATEGORY_LABEL = {
+  builtin: '標準プラグイン',
+  marketplace: 'マーケットプレイスプラグイン',
+  enterprise: 'エンタープライズ版プラグイン',
+  custom: '自社開発プラグイン',
+};
+
 const AUDIT_COLUMNS = new Set([
   'id', 'dateCreated', 'dateModified', 'createdBy', 'modifiedBy', 'createdByName', 'modifiedByName',
 ]);
+
+/**
+ * フォームが作るテーブルの接頭辞（Joget の命名規約）。
+ * 解析側（app_summary.json）は tableName を素の形で返す場合と、
+ * 物理テーブル名として app_fd_ 付きの形で返す場合がある。
+ * どちらでも同じオブジェクトに解決されるよう、付与はここ 1 箇所で冪等に扱う。
+ */
+const TABLE_PREFIX = 'app_fd_';
+
+/** 素のテーブル名から規約で物理テーブル名を求める（冪等） */
+const physicalTable = (name) => {
+  const s = String(name || '');
+  return s.startsWith(TABLE_PREFIX) ? s : `${TABLE_PREFIX}${s}`;
+};
 
 const BASIS_LABEL = {
   form: 'フォーム定義（命名規約で生成）',
@@ -250,7 +276,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
   /* ── フォームと項目 ──────────────────────────────────────────────── */
   for (const f of forms) {
     const fields = asArray(f.fields);
-    const tableId = f.tableName ? `app_fd_${f.tableName}` : null;
+    const tableId = f.tableName ? physicalTable(f.tableName) : null;
     const binders = [];
     for (const u of asArray(summary?.plugin_usages)) {
       if (u.where?.includes(f.id) && /Binder/.test(u.simpleName || '')) binders.push(u.simpleName);
@@ -534,7 +560,12 @@ export function buildObjectModel({ summary, correlation } = {}) {
     });
     const sObj = byKey.get(k(OBJ.SQL, sqlId));
     sObj.sections.push({ title: 'SQL 本文', kind: 'code', text: String(se.sql || '（SQL 本文がありません）') });
-    if (se.table) relate(k(OBJ.SQL, sqlId), k(OBJ.TABLE, `app_fd_${se.table}`), 'table', 'SQL が参照するテーブル名に命名規約を適用');
+    if (se.table) {
+      // se.table は物理テーブル名として抽出されている場合があり、すでに
+      // app_fd_ が付いていることもある。接頭辞の付与は冪等にしておく
+      //（app_fd_app_fd_* という実在しないキーを作ってしまう）。
+      relate(k(OBJ.SQL, sqlId), k(OBJ.TABLE, physicalTable(se.table)), 'table', 'SQL が参照するテーブル名に命名規約を適用');
+    }
     if (se.form && formIds.has(se.form)) relate(k(OBJ.SQL, sqlId), k(OBJ.FORM, se.form), 'sql', 'フォーム定義内に記載された SQL');
   }
 
@@ -543,7 +574,11 @@ export function buildObjectModel({ summary, correlation } = {}) {
   const addPlugin = (id, patch) => {
     if (!id || seenPlugin.has(id)) return null;
     seenPlugin.add(id);
-    return add({ key: k(OBJ.PLUGIN, id), id, type: OBJ.PLUGIN, name: id.split('.').pop(), ...patch });
+    add({ key: k(OBJ.PLUGIN, id), id, type: OBJ.PLUGIN, name: id.split('.').pop(), ...patch });
+    // 戻り値は add() の返り値ではなく「key 文字列」でなければならない。
+    // 呼び出し側は key で byKey を引くため、ここをオブジェクトにすると
+    // 関連も注記もすべて無言で消える（第 2 段の解決で byKey.get が外れるため）。
+    return k(OBJ.PLUGIN, id);
   };
   for (const b of asArray(correlation?.bindings)) {
     const inSource = !!b.inSource;
@@ -582,6 +617,54 @@ export function buildObjectModel({ summary, correlation } = {}) {
       evidence: [{ kind: 'source', ref: d.file || 'プラグインソースを全文走査', note: 'properties 定義にも Java ソースにも該当なし' }],
       docAnchors: ['2.2 コンポーネント・プラグイン一覧'],
     });
+  }
+
+  // プラットフォーム標準（builtin / enterprise）のクラス。
+  // correlate() はこれらを bindings に入れず platform へ分ける。突合はできないが、
+  // 「アプリが実際に参照している」こと自体は確定しており、
+  // 一覧に出るのに検索も詳細も出ない状態をそのまま残さない。
+  //
+  // 使用箇所（usedIn）は「種別 + 識別子」の表示ラベルで届く。
+  // ラベル文字列を鍵にすると壊れやすいため、識別子だけを取り出して
+  // 既存のオブジェクト索引へ突き合わせる。
+  const whereById = new Map();
+  for (const o of objects) {
+    if (!whereById.has(o.id)) whereById.set(o.id, o.key);
+    if (o.type === OBJ.ACTIVITY) {
+      const bare = String(o.id).split('.').pop();
+      if (!whereById.has(bare)) whereById.set(bare, o.key);
+    }
+  }
+  for (const p of asArray(correlation?.platform)) {
+    const key = addPlugin(p.className, {
+      name: p.simpleName || p.className.split('.').pop(),
+      // 「未確認」ではない。クラス・種別・参照箇所は読み取れており、
+      // 読めなかったのは「設定項目の突合」だけなので「一部のみ」にする。
+      status: STATUS.PARTIAL,
+      brief: `プラットフォーム標準 · アプリ内 ${p.occurrences || 0} 箇所から参照 · 設定項目の突合なし`,
+      attrs: [
+        attr('クラス', p.className),
+        attr('種別', CATEGORY_LABEL[p.category] || p.category),
+        attr('アプリ内使用数', p.occurrences),
+        attr('使用箇所', asArray(p.usedIn).filter(Boolean).slice(0, 8).join(' / ')),
+        attr('ソース', 'プラットフォーム標準。アプリにソースは同梱されない'),
+        attr('設定項目の突合', 'ソースが無いため実施していない'),
+      ],
+      evidence: [{
+        kind: 'config',
+        ref: 'アプリ定義中の参照',
+        note: '標準・エンタープライズ版はアプリにソースが同梱されないため、設定項目の突合は実施できません',
+      }],
+      docAnchors: ['2.2 コンポーネント・プラグイン一覧'],
+    });
+    if (!key) continue;
+    note(key, 'info', '参照箇所と参照回数は読み取れています。設定項目が有効かどうかの判定はソースが無いため実施していません');
+    for (const where of asArray(p.usedIn).filter(Boolean)) {
+      const target = whereById.get(String(where).split(' ').pop());
+      // 「フロント」は Userview 定義であり、対応するオブジェクト種別を
+      // 持たないため紐づけない。推測で結び付けない。
+      if (target) relate(key, target, 'target', `アプリ定義の ${where} がこのクラスを参照している`);
+    }
   }
 
   /* ── データソース ───────────────────────────────────────────────
@@ -661,19 +744,27 @@ export function buildObjectModel({ summary, correlation } = {}) {
   };
 }
 
-/** 未確認一覧は影響の大きい種別から出す（カラムが数百件で埋もれないように） */
+/**
+ * 未確認一覧の並び順。
+ *
+ * 「解析が弱い」ことと「問題が潜んでいる」ことは別なので、
+ * 不確実そのものがユーザーの判断材料になる種別を先に置く。
+ * プラットフォーム標準プラグイン（apps / enterprise）は
+ * 参照箇所は確実に取れており正常でも未確認になる種類なので、
+ * SQL やデータソースの接続先より後ろに回す。
+ */
 const UNCONFIRMED_RANK = {
   [OBJ.TABLE]: 0,
   [OBJ.FORM]: 1,
   [OBJ.MENU]: 2,
   [OBJ.LIST]: 3,
   [OBJ.PROCESS]: 4,
-  [OBJ.PLUGIN]: 5,
+  [OBJ.ACTIVITY]: 5,
   [OBJ.SQL]: 6,
-  [OBJ.ACTIVITY]: 7,
+  [OBJ.DATASOURCE]: 7,
   [OBJ.FIELD]: 8,
   [OBJ.COLUMN]: 9,
-  [OBJ.DATASOURCE]: 10,
+  [OBJ.PLUGIN]: 10,
 };
 
 function summarizeSql(se) {

@@ -1,0 +1,133 @@
+/**
+ * test-all.mjs — 解析系テストの一括実行
+ *
+ * なぜこれが要るか:
+ *  各テストは既定で同梱サンプル（Apache-2.0）だけを相手にする。
+ *  顧客資産（fixtures/rfq）は .gitignore 済みなので CI には存在せず、
+ *  そのため「規模が大きい・SQL が多い・プラグインが多い」場合の回帰が
+ *  自動では検出されず、静かに潜伏していた。
+ *
+ * 方針:
+ *   - fixtures/ 以下の解析対象をすべて回す。
+ *   - 実行できなかった対象は「スキップ」として必ず標準出力に残す。
+ *     門を黙って緑にしてはならない（同じ穴を一度踏み抜いているため）。
+ */
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const ROOT = path.dirname(new URL(import.meta.url).pathname);
+const NODE = process.execPath;
+
+/**
+ * 解析対象を列挙する。
+ * .jwa はプロジェクト直下にもサブディレクトリにも置かれるため、
+ * ここでは再帰して探す。1 ディレクトリが 1 プロジェクトに対応する。
+ */
+function findProjects(dir, depth = 0) {
+  if (depth > 3) return [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const subdirs = entries
+    .filter((e) => e.isDirectory() && e.name !== 'node_modules' && e.name !== 'dist')
+    .map((e) => path.join(dir, e.name));
+  const here = entries.some((e) => e.isFile() && e.name.toLowerCase().endsWith('.jwa'));
+  const below = subdirs.flatMap((d) => findProjects(d, depth + 1));
+  // 自分の直下よりサブディレクトリの方が深い解析対象なら、
+  // 自分のほうは「親ディレクトリ」ではなく「別プロジェクト」として扱わない
+  // （二重に回すと解析結果が二重計上される）。
+  return here && !below.length ? [dir] : below;
+}
+
+const FIXTURES = path.join(ROOT, 'fixtures');
+const APACHE = path.join(FIXTURES, 'enhanced-json-api-main');
+const targets = fs.existsSync(FIXTURES) ? findProjects(FIXTURES) : [];
+if (!targets.includes(APACHE)) targets.unshift(APACHE);
+
+const NODE_TESTS = [
+  ['test-engine.js', '解析エンジン'],
+  ['test-correlate.js', 'プラグイン突合'],
+  ['test-mermaid.mjs', '図の生成'],
+  ['test-plugin.js', 'プラグインソース走査'],
+];
+
+let failed = 0;
+const skipped = [];
+
+function run(label, cmd, args, env = {}) {
+  process.stdout.write(`\n━━ ${label} ━━\n`);
+  const r = spawnSync(cmd, args, {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: { ...process.env, ...env },
+  });
+  if (r.status !== 0) {
+    failed++;
+    console.log(`  ⇒ 不合格（${label}）`);
+  }
+}
+
+/* 単一言語の維持もテストの 1 つとして扱う。
+ * 成果物に中国語が混ざると納品先が読めなくなるため、
+ * 機能テストと一緒に回さないと門が外れる。 */
+const langCheck = path.join(ROOT, 'verify', 'check_japanese_only.py');
+if (!fs.existsSync(langCheck)) {
+  skipped.push('単一言語チェック（verify/check_japanese_only.py なし）');
+} else {
+  for (const py of ['python3', 'python']) {
+    const probe = spawnSync(py, ['--version'], { stdio: 'ignore' });
+    if (probe.status === 0) {
+      run('単一言語チェック', py, [langCheck]);
+      break;
+    }
+    if (py === 'python') skipped.push('単一言語チェック（python が見つからない）');
+  }
+}
+
+/* Node 側の一括テスト（解析対象によらず実行） */
+for (const [file, label] of NODE_TESTS) {
+  const p = path.join(ROOT, file);
+  if (!fs.existsSync(p)) {
+    skipped.push(`${label}（${file} なし）`);
+    continue;
+  }
+  run(label, NODE, [p]);
+}
+
+/* オブジェクトモデルは全解析対象に対して回す。
+ * ここで初めて「SQL に app_fd_ が重複して付く」「プラグインの関連が 0 本」
+ * のような、実データが静かに壊していた欠陥を検出できる。 */
+const omTest = path.join(ROOT, 'test-object-model.mjs');
+for (const dir of targets) {
+  const rel = path.relative(ROOT, dir);
+  if (!fs.existsSync(dir)) {
+    skipped.push(`統合オブジェクトモデル（${rel} が無いため）`);
+    continue;
+  }
+  run(`統合オブジェクトモデル — ${rel}`, NODE, [omTest], { JOGET_PROJECT: dir });
+}
+
+/* 画面テストも解析対象ごとに回す。
+ * 静的モデルが正しくても描画側で壊れている（関連パネルが空になる、
+ * Mermaid が空のプレースホルダになる等）ため、両方を見る。 */
+const uiTest = path.join(ROOT, 'test-ui.mjs');
+if (!fs.existsSync(uiTest)) {
+  skipped.push('画面テスト（test-ui.mjs なし）');
+} else {
+  for (const dir of targets) {
+    if (!fs.existsSync(dir)) continue;
+    run(`画面テスト — ${path.relative(ROOT, dir)}`, NODE, [uiTest], { JOGET_PROJECT: dir });
+  }
+}
+
+console.log(`\n━━ 集計 ━━`);
+console.log(`  失敗 ${failed} 件`);
+if (skipped.length) {
+  console.log('  以下の対象は実行できませんでした（門禁が黙って緑にならないよう、必ず表示する）:');
+  for (const s of skipped) console.log(`    - ${s}`);
+}
+process.exit(failed ? 1 : 0);

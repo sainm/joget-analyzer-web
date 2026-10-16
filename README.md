@@ -91,45 +91,67 @@ npm start          # 別ターミナルでバックエンドを起動
 `fixtures/` に解析用のサンプルを同梱しています（詳細は `fixtures/README.md`）。
 
 ```bash
-npm start                                  # 別ターミナルで起動しておく
-npm run verify:lang                        # 日本語のみになっているかのゲート
-npm run test:ui                            # UI スモークテスト（Playwright・全画面）
-npm run test:engine                        # 解析エンジン単体
-npm run test:mermaid                       # 生成した Mermaid がパースできるか
-npm run test:plugin                        # プラグインソースのスキャン
-npm run test:correlate                     # アプリ設定 ↔ プラグインソース突合
-npm run test:object-model                  # 統一オブジェクトモデル（関連の完整性・未確認の隠蔽）
+npm start          # 別ターミナルで起動しておく（画面テストはブラウザを使う）
+npm run test:all   # まとめて実行（推奨）
 ```
 
-| スクリプト | 内容 | 顧客アプリの `.jwa` が必要か |
+`test:all` は `fixtures/` にある解析対象をすべて自動検出し、
+対象ごとに同じ検査を流します。実行できなかった対象は
+「スキップ」として必ず一覧に出ます（門が黙って緑にはなりません）。
+
+| 検査 | 内容 |
+|---|---|
+| 単一言語チェック | 簡体字・中国語句読点・無関係言語の残留（0 件で合格） |
+| 解析エンジン | フォーム・プロセス・SQL の抽出 |
+| プラグイン突合 | アプリ設定とプラグインソースの突合 |
+| 図の生成 | Mermaid が実際にパースできるか（空プレースホルダも検出） |
+| プラグインソース走査 | properties 宣言と Java 読み取りの走査 |
+| 統合オブジェクトモデル | 関連の解決・双方向性・未確認の明示・キーの妥当性 |
+| 画面テスト | 全画面・図の描画・日本語表示・ページエラー |
+
+個別に実行することもできます。
+
+```bash
+npm run verify:lang          # 日本語のみになっているかのゲート
+npm run test:ui              # 画面テスト（既定は同梱サンプル）
+npm run test:object-model    # 統合オブジェクトモデル
+```
+
+### 解析対象を切り替える
+
+`fixtures/` に同梱されるのは Apache-2.0 のサンプルだけなので、
+そのままでは「小さいアプリ」に対する検証しかできません。
+実際のお客様の `.jwa` を置いておくと、
+早めに検出できたはずの不具合が CI に出ないまま成品になります。
+
+```bash
+# 顧客アプリを fixtures/ に置く（.gitignore 済みなので commit されない）
+mkdir -p fixtures/my-app && cp /path/to/APP_XXX.jwa fixtures/my-app/
+
+# 個別に実行
+JOGET_PROJECT="$PWD/fixtures/my-app" npm run test:ui
+JOGET_PROJECT="$PWD/fixtures/my-app" npm run test:object-model
+
+# test:all は_FOUND_した対象を自動で回す
+npm run test:all
+```
+
+`JOGET_PROJECT` には `.jwa` ファイルを指定しても、
+そのディレクトリを指定しても構いません。
+
+### 「緑だが何も検査していない」状態を作らない
+
+このリポジトリでは門そのものに関する失敗が 3 度ありました。
+いずれも「テストは通っているのに、壊れたまま納品される」形です。
+
+| 症状 | 原因 | 対策 |
 |---|---|---|
-| `npm run verify:lang` | 簡体字・中国語句読点・無関係言語の残留検査（0 件で合格） | 不要 |
-| `npm run test:ui` | UI スモークテスト（全 12 画面・図の描画・日本語） | 不要 |
-| `npm run test:object-model` | 統一オブジェクトモデルの回帰 | 不要 |
-| `npm run test:plugin` | プラグインソースのスキャン | 不要 |
-| `npm run test:correlate` | アプリ設定 ↔ プラグインソース突合 | 不要 |
-| `npm run test:engine` | 解析エンジン単体テスト | **必要** |
-| `npm run test:mermaid` | 両フィクスチャの Mermaid 生成 | **必要** |
+| Mermaid の空図が検出されない | SVG 要素に `innerText` は常に空文字を返す | `textContent` を使う |
+| 関連が 0 本でもテストが通る | 解決に失敗した関連は `links` に入らず `unresolved` に落ちるだけ | `unresolved` も必ず検査する |
+| 画面テストが常に緑 | 想定した解析対象でしかアサーションが成立しない | 全解析対象を自動検出して回す |
 
-`npm run test:ui` は既定で同梱サンプル（`fixtures/enhanced-json-api-main`）を解析します。
-顧客アプリに対して実行するには `JOGET_PROJECT` を `.jwa` またはプロジェクトディレクトリに差し替えます。
-
-```bash
-JOGET_PROJECT=/path/to/APP_XXX.jwa npm run test:ui
-```
-
-同梱するのは Apache-2.0 のオープンソース素材（`fixtures/enhanced-json-api-main`）のみで、
-顧客アプリの `.jwa` は業務定義そのものなのでコミットしていません。
-そのため、クローン直後は「必要」列が**必要**のテストだけが動きません。
-`JOGET_PROJECT` で対象を差し替えれば、どのテストも手元のアプリに対して実行できます。
-
-```bash
-JOGET_PROJECT=/path/to/your-project npm run test:engine
-```
-
-`fixtures/enhanced-json-api-main` を指定すると、参照プラグインクラス 25 件のうち 5 件がソースに命中し、
-`autoHandleWorkflowVariable` が 2 箇所で「無効な設定項目」と判定されるはずです。
-
+新しい検査thornAddsせては、**意図的に不具合を戻して検出できることを必ず確認**してください。
+検証していない検査は、止まったままの検査と同じです。
 ## 技術スタック
 
 解析は純粋な Node.js（Express + adm-zip + fast-xml-parser）、フロントは React 18 + Vite + Tailwind CSS v4、図は Mermaid をフロント側で描画。**データベースは使用しません** —— 結果は `data/runs/<id>/out/` に出力されます。

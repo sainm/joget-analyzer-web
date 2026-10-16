@@ -15,7 +15,8 @@
     "test:mermaid": "node test-mermaid.mjs",
     "test:plugin": "node test-plugin.js",
     "test:correlate": "node test-correlate.js",
-    "test:object-model": "node test-object-model.mjs"
+    "test:object-model": "node test-object-model.mjs",
+    "test:all": "node test-all.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

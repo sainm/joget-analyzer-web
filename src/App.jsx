@@ -206,13 +206,13 @@ export default function App() {
         return hasCorrelation ? (
           <div className="space-y-4">
             <PageHead title={t('nav.plugins')} lead="アプリが参照するプラグインと、同一プロジェクト内のソース定義を突き合わせた結果です。ソース未提供のクラスはプラットフォーム標準として分離しています。" />
-            <Plugins summary={summary} manifest={data.manifest} />
+            <Plugins summary={summary} manifest={data.manifest} model={model} onSelectObject={goToObject} />
             <Correlation correlation={data.correlation} />
           </div>
         ) : (
           <>
-            <PageHead title={t('nav.plugins')} lead="この解析にはプラグインソースが含まれていません。プラットフォーム標準クラスとの突合は行えません。" />
-            <Plugins summary={summary} manifest={data.manifest} />
+            <PageHead title={t('nav.plugins')} lead="この解析にはプラグインソースが含まれていません。プラットフォーム標準クラスとの突合は行えません。ただし、どのクラスをどれくらいの箇所から参照しているかまでは読み取れています。" />
+            <Plugins summary={summary} manifest={data.manifest} model={model} onSelectObject={goToObject} />
           </>
         );
       case 'relations':

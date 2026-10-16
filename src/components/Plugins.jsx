@@ -2,6 +2,8 @@ import React from 'react';
 import { Card, Badge, Table, Td, Empty, Stat, Accordion } from './ui.jsx';
 import Mermaid from './Mermaid.jsx';
 import { callGraphChart } from '../lib/mermaidGraphs.js';
+import { OBJ } from '../lib/objectModel.js';
+import { StatusTag } from './Common.jsx';
 import { t } from '../i18n.js';
 
 const CATS = [
@@ -11,14 +13,20 @@ const CATS = [
   { key: 'builtin', label: 'pl.catBuiltin', tone: 'default', hint: 'pl.catBuiltinHint' },
 ];
 
-export default function Plugins({ summary, manifest }) {
-  const refs = summary.plugin_refs || {};
+export default function Plugins({ summary, manifest, model, onSelectObject }) {  const refs = summary.plugin_refs || {};
   const datasources = summary.datasources || [];
   const sqlTables = summary.sql_tables || {};
 
   const total = CATS.reduce((n, c) => n + Object.keys(refs[c.key] || {}).length, 0);
   const externalDs = datasources.filter((d) => d.external);
   const riskPlugins = Object.keys(refs.custom || {}).length + Object.keys(refs.marketplace || {}).length;
+  // 一覧に出ているクラスは「オブジェクト一覧.Headers にも同じ数が出る」ようにしておく。
+  // この画面だけ数が違うと、どちらが正しいか利用者に判断させることになる。
+  const objOf = (cls) => model?.byKey.get(`${OBJ.PLUGIN}:${cls}`);
+  const missingFromModel = CATS.reduce(
+    (n, c) => n + Object.keys(refs[c.key] || {}).filter((cls) => !objOf(cls)).length,
+    0,
+  );
 
   return (
     <div className="space-y-5">
@@ -27,6 +35,14 @@ export default function Plugins({ summary, manifest }) {
         <Stat label={t('pl.custom')} value={Object.keys(refs.custom || {}).length} tone="rose" hint={t('pl.customHint')} />
         <Stat label={t('pl.extDs')} value={externalDs.length} tone="amber" />
         <Stat label={t('pl.outerTables')} value={Object.keys(sqlTables).length} tone="amber" hint={t('pl.outerHint')} />
+      </div>
+
+      {/* 一覧のクラス数とオブジェクト一覧の件数が食い違う、画面間の結論の矛盾を防ぐ */}
+      <div className="rounded-lg border border-ink-200 bg-ink-50 px-4 py-2 text-[11px] leading-relaxed text-ink-500">
+        {t('pl.countNote', { n: total })}
+        {missingFromModel > 0 && (
+          <span className="ml-1 text-rose-600">{t('pl.countMismatch', { n: missingFromModel })}</span>
+        )}
       </div>
 
       {(riskPlugins > 0 || externalDs.length > 0 || Object.keys(sqlTables).length > 0) && (
@@ -57,10 +73,23 @@ export default function Plugins({ summary, manifest }) {
                 <Empty>{t('pl.noRef')}</Empty>
               ) : (
                 <div className="space-y-2">
-                  {entries.map(([cls, info]) => (
+                  {entries.map(([cls, info]) => {
+                    const obj = objOf(cls);
+                    return (
                     <Accordion key={cls} title={cls.split('.').pop()} meta={t('im.sites', { n: info.occurrences })}>
                       <div className="space-y-1.5 text-xs">
-                        <div className="font-mono text-[11px] text-ink-500">{cls}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[11px] text-ink-500">{cls}</span>
+                          {obj && <StatusTag status={obj.status} />}
+                          {obj && onSelectObject && (
+                            <button
+                              onClick={() => onSelectObject(obj.key)}
+                              className="ml-auto rounded border border-ink-200 px-2 py-0.5 text-[11px] text-ink-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                            >
+                              {t('dc.jumpToObject')}
+                            </button>
+                          )}
+                        </div>
                         <div className="flex flex-wrap gap-1">
                           {(info.usedIn || []).map((u, i) => (
                             <Badge key={i}>{u}</Badge>
@@ -68,7 +97,8 @@ export default function Plugins({ summary, manifest }) {
                         </div>
                       </div>
                     </Accordion>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card>

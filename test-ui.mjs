@@ -340,7 +340,15 @@ try {
 
   const one = await scope(PROJECT);
   check('単一プロジェクトは正常に選択', one.ambiguous === false && !!one.chosen && one.projects.length === 1);
-  check('プロジェクト内の jwa と maven が同一プロジェクトに属する', one.chosen && one.chosen.mavenRoot === one.chosen.root);
+  // Maven ルートは「同一プロジェクトなら root と一致」「Maven を含まない
+  // 純アプリパッケージなら null」「別のプロジェクトを指してはならない」の
+  // 3 通りを許す。mavenRoot === root を無条件に要求すると、
+  // プラグインソースを持たない正当な案件（.jwa のみ）だけが不合格になる。
+  check(
+    'jwa と maven が相互に別プロジェクトを案内しない',
+    one.chosen && (one.chosen.mavenRoot === null || one.chosen.mavenRoot === one.chosen.root),
+    `root=${one.chosen?.root} mavenRoot=${one.chosen?.mavenRoot}`,
+  );
 
   console.log('\n[19] ブラウザ言語が日本語でも英語でも日本語 UI（納品先：日本）');
   for (const locale of ['ja-JP', 'en-US']) {
