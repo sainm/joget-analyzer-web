@@ -25,7 +25,7 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { scanPluginSource } = require('./lib/pluginScan');
@@ -332,6 +332,57 @@ for (const f of forms) {
     `実際の紐づき: ${actual.join(' / ') || 'なし'}`);
 }
 console.log(`  フォーム ${forms.length} 件を検証`);
+
+/* 2.1 と 2.2 は統合オブジェクトモデルのオブジェクトから作る。
+ * 生成側が app.userviews や summary.plugin_refs を独自に歩く実装に戻ると、
+ * 画面のオブジェクト一覧と設計書の表が食い違う。表が「静かに薄くなる」
+ * 形で壊れるため、生成された表とモデルの集合を突き合わせる。
+ * 加えてアプリ定義の生の巡回とも突き合わせ、モデルが落としていないかも見る。 */
+const cellOf = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+const sectionRows = (titlePrefix) => {
+  const lines = md.split('\n');
+  const start = lines.findIndex((l) => l.startsWith(`### ${titlePrefix}`));
+  if (start < 0) return null;
+  const rows = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^#{2,4}\s/.test(l)) break;
+    const mm = /^\|(.+)\|\s*$/.exec(l);
+    if (!mm) continue;
+    const cells = mm[1].split('|').map((c) => c.trim());
+    if (cells.every((c) => /^-+$/.test(c))) continue;
+    rows.push(cells);
+  }
+  return rows;
+};
+const sig = (cells) => cells.map((c) => String(c)).join('\u0001');
+
+const modRows = (sectionRows(sections.modules) || []).slice(1);
+const menuObjs = m.objects.filter((o) => o.type === OBJ.MENU && o.menu);
+const rawMenus = (summary.app.userviews || [])
+  .flatMap((uv) => (uv.categories || []).flatMap((c) => (c.menus || []).map((mn) => [cellOf(c.category), cellOf(mn.label), mn.type, cellOf(mn.target || '')])));
+ok('2.1 の行数がメニューオブジェクトの数と一致する',
+  modRows.length === menuObjs.length,
+  `表 ${modRows.length} 行 / オブジェクト ${menuObjs.length} 件`);
+ok('2.1 の各行がアプリ定義のメニュー巡回と一致する',
+  JSON.stringify(modRows.map(sig).sort()) === JSON.stringify(rawMenus.map(sig).sort()),
+  `表 ${modRows.length} 行 / 生の巡回 ${rawMenus.length} 行`);
+
+const plRows = (sectionRows(sections.plugins) || []).slice(1);
+const docClasses = plRows.map((r) => r[1]).filter(Boolean);
+const expectedClasses = [...new Set([...appRefClasses, ...referencedClasses])];
+ok('2.2 のクラス集合がモデルのプラグインと一致する',
+  docClasses.length === new Set(docClasses).size
+    && expectedClasses.every((c) => docClasses.includes(c))
+    && docClasses.every((c) => expectedClasses.includes(c)),
+  `表 ${docClasses.length} 件 / モデル ${expectedClasses.length} 件`);
+ok('2.2 の参照回数がモデルの occurrences と一致する',
+  plRows.every((r) => {
+    const o = m.byKey.get(`${OBJ.PLUGIN}:${r[1]}`);
+    return !!o && String(o.plugin?.occurrences || 0) === r[2];
+  }),
+  plRows.filter((r) => String(m.byKey.get(`${OBJ.PLUGIN}:${r[1]}`)?.plugin?.occurrences || 0) !== r[2]).slice(0, 3).map((r) => `${r[1]}=${r[2]}`).join(', '));
+console.log(`  2.1 ${modRows.length} 行 / 2.2 ${plRows.length} 行（モデルのメニュー ${menuObjs.length}・プラグイン ${plugins.length} と突合）`);
 
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;
