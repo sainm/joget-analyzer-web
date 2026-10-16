@@ -252,10 +252,9 @@ export const T = {
   'sh.noResults': '一致するオブジェクトはありません',
   'sh.clearSearch': '検索を消す',
 
-  'st.parsed': '解析済',
-  'st.partial': '一部のみ',
-  'st.unknown': '未確認',
-  'st.failed': '解析失敗',
+  /* 解析状態のラベル（「解析済」等）は lib/objectModel.js が持つ。
+   * ここに同じ語を置くと二重定義になるので置かない。
+   * 状態の説明文（st.*Sub）は UI の文脈で完結するのでこちらに残す。 */
 
   'ob.searchPlaceholder': '名称・ID・クラス名で絞り込み',
   'ob.filterStatus': '解析状態',

@@ -154,6 +154,49 @@ if (!fs.existsSync(uiTest)) {
   }
 }
 
+/* 開発サーバー（Vite dev）の変換テスト。
+ *
+ * ここが独立している理由:
+ *   本番ビルド（vite build）と開発サーバーは CJS の変換経路が別で、
+ *   **build が通っても dev では画面が真っ白**になりうる。
+ *   実際にそうなった（lib/ 配下の CJS をブラウザから読むようにした際、
+ *   vite.config の開発サーバー設定が漏れて module is not defined で全滅）。
+ *   build だけ見ていると再発に気づけないため、dev も門に含める。
+ *
+ * ポートは画面テスト（3000）と別にして衝突を避ける。 */
+const devTest = path.join(ROOT, 'test-dev-transform.mjs');
+if (!fs.existsSync(devTest)) {
+  skipped.push('開発サーバー変換テスト（test-dev-transform.mjs なし）');
+} else {
+  const DEV_PORT = '5199';
+  const devUp = () => spawnSync(NODE, ['-e',
+    `fetch('http://127.0.0.1:${DEV_PORT}/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))`],
+    { stdio: 'ignore' }).status === 0;
+
+  let dev = null;
+  const devWasUp = devUp();
+  if (!devWasUp) {
+    process.stdout.write('\n━━ 開発サーバー起動（Vite dev） ━━\n');
+    dev = spawn('npx', ['vite', '--port', DEV_PORT, '--host', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
+    for (let i = 0; i < 60 && !devUp(); i++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+    }
+    if (!devUp()) {
+      console.log('  ⇒ 開発サーバーが起動できませんでした。変換テストを中止します');
+      dev.kill('SIGTERM');
+      dev = null;
+    }
+  }
+
+  try {
+    run('開発サーバー変換テスト（CJS → ESM）', NODE, [devTest], { VITE_DEV_PORT: DEV_PORT });
+  } finally {
+    /* 自分で起こしたものだけ閉じる。ユーザーが手で動かしている
+     * dev サーバーを巻き添えにしない。 */
+    if (dev) dev.kill('SIGTERM');
+  }
+}
+
 console.log(`\n━━ 集計 ━━`);
 console.log(`  失敗 ${failed} 件`);
 if (skipped.length) {

@@ -16,7 +16,8 @@
     "test:plugin": "node test-plugin.js",
     "test:correlate": "node test-correlate.js",
     "test:object-model": "node test-object-model.mjs",
-    "test:all": "node test-all.mjs"
+    "test:all": "node test-all.mjs",
+    "test:dev": "node test-dev-transform.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

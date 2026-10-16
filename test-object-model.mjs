@@ -14,10 +14,18 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import { buildObjectModel, OBJ, STATUS } from './src/lib/objectModel.js';
 import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js';
 
+/**
+ * 統合オブジェクトモデルは lib/objectModel.js（CJS）にある。
+ * サービス側（lib/designDoc.js 等）とブラウザ側（src/）が同じ実装を
+ * 読み込むため、二重定義を避けるには CJS 一択。
+ *
+ * ここは Node の ESM テストなので createRequire で読む。
+ * Vite 側は esbuild が ESM に変換して取り込む。
+ */
 const require = createRequire(import.meta.url);
+const { buildObjectModel, OBJ, STATUS } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { generateDesignDoc } = require('./lib/designDoc');
@@ -180,7 +188,7 @@ ok('測定していない項目は「未計測」と明示される', m.coverage
 console.log('\n[6] 設計書との対応（docAnchors ↔ 実際の見出し）');
 /**
  * docAnchors は「オブジェクト → 設計書のどの章」という対応である。
- * 生成側（lib/designDoc.js）と参照側（src/lib/objectModel.js）は
+ * 生成側（lib/designDoc.js）と参照側（lib/objectModel.js）は
  * 見出しの語彙を lib/chapters.cjs で共有しているが、
  * 「片方だけ見出しの形式を変えた」状態は語彙の共有では防げない。
  * 実際に生成された設計書に対して照合できる形にして、ここで検証する。
