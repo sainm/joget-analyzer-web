@@ -428,6 +428,70 @@ ok('tableModel が無い解析結果の 5.1 もモデルと一致する',
   `設計書 ${legacyRows.length} / モデル ${legacyTables.length}`);
 console.log(`  5.1 ${tblRows.length} テーブル（モデル ${tableIds.length} と突合）/ 旧結果 ${legacyTables.length} テーブル・未解決 ${mLegacy.unresolved.length} 件`);
 
+/* 3.x もフォームオブジェクトから作る。app.forms を独自に歩くと、
+ * 画面のフォーム詳細（項目定義の表）と設計書が別個の推导になり、
+ * 片方だけ項目の出し方が変わっても気づかない。
+ *
+ * 突き合わせは独立した来源（summary.app.forms の生の fields）で行う。
+ * モデル自身のレンダリングと突き合わせると、モデルが壊れた瞬間に
+ * ゲートも一緒に壊れて、両方が緑のままになる。
+ *
+ * 頭行（見出し行）は項目行の突合からは除く——モデルの head と同一の行を
+ * データ行と一緒に数えると、1 節あたり 1 行多く見えてしまう。語彙そのものは
+ * 別のゲートでモデルと突き合わせる。 */
+const cellsOf = (line) => {
+  const mm = /^\|(.*)\|\s*$/.exec(line);
+  return mm ? mm[1].split('|').map((c) => c.trim()) : null;
+};
+const rawFieldRows = (formId) => {
+  const f = (summary.app.forms || []).find((x) => x.id === formId);
+  // ラベルが無い項目は空セル（旧実装と同じ。モデルのオブジェクト名は
+  // id にフォールバックするが、表のセルは空のまま揺るがない）
+  return (f?.fields || []).map((fd) => [fd.id, fd.label || '', fd.type || '']);
+};
+const formSections = [];
+{
+  let cur = null;
+  for (const l of mdLines) {
+    const h = /^### 3\.(\d+) (.+)（`([^`]+)`）\s*$/.exec(l);
+    if (h) { cur = { seq: Number(h[1]), name: h[2], id: h[3], rows: [] }; formSections.push(cur); continue; }
+    if (/^#{2,4}\s/.test(l)) { cur = null; continue; }
+    if (!cur) continue;
+    const c = cellsOf(l);
+    if (c && c.length === 5 && !c.every((x) => /^-+$/.test(x))) cur.rows.push(c);
+  }
+}
+const formObjs = m.objects.filter((o) => o.type === OBJ.FORM);
+/* 見出し行は節の表の先頭行。項目行の突合ではモデルの head と同一の行を
+ * 除くので、直書きの語彙が紛れ込むと行の突合は通ってしまう。
+ * 語彙の単一の権威は objectModel 侧なので、見出し行を別に突き合わせる。 */
+const headMismatch = formObjs.filter((f) => {
+  const sec = formSections.find((s) => s.id === f.id);
+  const head = (f.sections.find((s) => s.title === '項目定義') || {}).head || [];
+  const first = (sec?.rows || [])[0] || [];
+  return first.join('|') !== head.join('|');
+});
+ok('3.x の見出し行がモデルの語彙と一致する',
+  headMismatch.length === 0,
+  headMismatch.slice(0, 3).map((f) => f.id).join(', '));
+ok('3.x の節数がフォームオブジェクト数と一致する',
+  formSections.length === formObjs.length,
+  `節 ${formSections.length} / フォーム ${formObjs.length}`);
+ok('3.x の節がフォームオブジェクトの順に並ぶ',
+  formObjs.every((f, i) => formSections[i] && formSections[i].id === f.id),
+  formSections.map((s) => s.id).join(', '));
+const formRowMismatch = formObjs.filter((f) => {
+  const sec = formSections.find((s) => s.id === f.id);
+  const head = (f.sections.find((s) => s.title === '項目定義') || {}).head || [];
+  const got = (sec?.rows || []).filter((r) => r.join('|') !== head.join('|')).map((r) => [r[0], r[1], r[2]]);
+  const want = rawFieldRows(f.id);
+  return JSON.stringify(got) !== JSON.stringify(want);
+});
+ok('3.x の項目行がアプリ定義のフォーム項目と一致する',
+  formRowMismatch.length === 0,
+  formRowMismatch.slice(0, 3).map((f) => f.id).join(', '));
+console.log(`  3.x ${formSections.length} 節・${formSections.reduce((n, s) => n + s.rows.length, 0)} 行（モデルのフォーム ${formObjs.length} と突合）`);
+
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;
   console.log(`    ${hit ? ' ' : '!'} ${c.title} ← ${hit} オブジェクト`);
