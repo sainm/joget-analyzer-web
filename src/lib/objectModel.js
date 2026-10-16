@@ -32,6 +32,31 @@
  */
 
 import { t } from '../i18n.js';
+import chapters from '../../lib/chapters.cjs';
+
+/**
+ * 設計書の章・節の見出し語彙。
+ *
+ * 生成側（lib/designDoc.js）も同じ lib/chapters.cjs を読む。
+ * ここで同じ文字列を直書きすると、生成側だけ見出しが変わったときに
+ * docAnchors が宙に浮き、設計書センターからオブジェクトへ戻れなくなる。
+ * つまり「オブジェクト → 設計書のどの章」という対応が静かに壊れる。
+ *
+ * import できる形:
+ *   CJS の default export は Vite / esbuild が ESM に変換して取り込める。
+ *   Node の ESM から直接 require したい場合は createRequire を使う
+ *   （test-object-model.mjs はそちら）。
+ */
+const CH = chapters.chapters || chapters.default?.chapters || chapters;
+const SEC = chapters.sections || chapters.default?.sections || {};
+
+/**
+ * フォームの節見出しは「### 3.<連番> <フォーム名>（`id`）」の形。
+ * 連番は生成時に振られるため、実際の節見出しを一意に指定できない。
+ * そこで「章番号の接頭辞」と「フォーム名」を別々に持ち、
+ * 照合はこの 2 つの両方を見る（designDocView.anchorsMatch が担当）。
+ */
+const FORM_PREFIX = (chapters.formSectionPrefix || chapters.default?.formSectionPrefix || '3.');
 
 export const OBJ = {
   MENU: 'menu',
@@ -130,7 +155,7 @@ const BASIS_LABEL = {
 const BASIS_REF = {
   form: 'フォーム定義の項目定義',
   data: 'data/*.json',
-  audit: 'Joget 平台が自動付与',
+  audit: 'Joget 基盤が自動付与',
   unknown: '—',
 };
 
@@ -221,7 +246,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         ref: derived ? 'フォーム定義（buildTableModel）' : 'data/*.json',
         note: '実データベースの構造は確認していない',
       }],
-      docAnchors: ['5. データモデル設計'],
+      docAnchors: [CH.dataModel],
     });
 
     const formFields = new Map();
@@ -257,7 +282,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
           attr('必須', hit ? (hit.fld.mandatory ? 'はい' : 'いいえ') : null),
         ],
         evidence: [{ kind: 'derivation', ref: BASIS_REF[basis], note: hit ? `フォーム ${hit.formId} の定義より` : '' }],
-        docAnchors: ['5.1 テーブル構造一覧'],
+        docAnchors: [SEC.tableList],
       });
       contain(k(OBJ.TABLE, tableId), k(OBJ.COLUMN, `${tableId}.${col}`));
       if (hit) relate(k(OBJ.COLUMN, `${tableId}.${col}`), k(OBJ.FIELD, hit.fld.id), 'field', `項目ID ${hit.fld.id} に命名規約を適用して生成`);
@@ -297,7 +322,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('データバインダ', [...new Set(binders)].join(' / ')),
       ],
       evidence: [{ kind: 'config', ref: `アプリ定義のフォーム ${f.id}`, note: 'JWA 内定義' }],
-      docAnchors: [`3.${' '}${f.name || f.id}`],
+      docAnchors: [FORM_PREFIX, f.name || f.id],
     });
     if (fields.length) {
       formObj.sections.push({
@@ -328,7 +353,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
           attr('規約で生成されるカラム', `c_${fld.id}`),
         ],
         evidence: [{ kind: 'config', ref: `フォーム ${f.id} の定義`, note: '' }],
-        docAnchors: ['3. 機能設計'],
+        docAnchors: [CH.function],
       });
       contain(k(OBJ.FORM, f.id), k(OBJ.FIELD, fld.id));
     }
@@ -363,7 +388,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('既定の並び替え', l.orderBy),
       ],
       evidence: [{ kind: 'config', ref: `データリスト ${l.id} の定義`, note: 'JWA 内定義' }],
-      docAnchors: ['2.1 機能モジュール（メニュー別）'],
+      docAnchors: [SEC.modules],
       sections: [
         columns.length && {
           title: '列定義',
@@ -446,7 +471,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
             attr('Userview', `${uv.name}（${uv.id}）`),
           ],
           evidence: [{ kind: 'config', ref: `Userview ${uv.id} のカテゴリ「${cat.category}」`, note: '' }],
-          docAnchors: ['2.1 機能モジュール（メニュー別）'],
+          docAnchors: [SEC.modules],
         });
         if (!target) {
           note(k(OBJ.MENU, menuId), 'info', 'このメニュー種別は target を保持しません。画面の実態は静的解析では確認できません');
@@ -484,7 +509,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('開始/終了の推定', detectEndpoints(acts, trans)),
       ],
       evidence: [{ kind: 'config', ref: 'package.xpdl', note: 'XPDL 1.0' }],
-      docAnchors: ['4. プロセス設計'],
+      docAnchors: [CH.process],
     });
     if (dangling.length) note(k(OBJ.PROCESS, p.id), 'warn', `遷移 ${dangling.length} 件が定義されていないノードを参照しています`);
     if (isolated.length) note(k(OBJ.PROCESS, p.id), 'warn', `接続の無いノードが ${isolated.length} 件あります`);
@@ -529,7 +554,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
           attr('参照テーブル', a.activityForms ? asArray(a.activityForms).join(' / ') : null),
         ],
         evidence: [{ kind: 'config', ref: `プロセス ${p.id}（package.xpdl）`, note: '' }],
-        docAnchors: ['4. プロセス設計'],
+        docAnchors: [CH.process],
       });
       contain(k(OBJ.PROCESS, p.id), k(OBJ.ACTIVITY, `${p.id}.${a.id}`));
     }
@@ -556,7 +581,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         { kind: 'config', ref: se.form ? `フォーム ${se.form}` : `プロセスノード ${se.activity || '—'}`, note: 'アプリ定義 / XPDL 内の SQL' },
         { kind: 'config', ref: 'SQL 本文', note: String(se.sql || '') },
       ],
-      docAnchors: ['6. 影響範囲分析'],
+      docAnchors: [CH.impact],
     });
     const sObj = byKey.get(k(OBJ.SQL, sqlId));
     sObj.sections.push({ title: 'SQL 本文', kind: 'code', text: String(se.sql || '（SQL 本文がありません）') });
@@ -601,7 +626,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         ref: b.source || 'アプリ定義の参照のみ',
         note: inSource ? '同一 Maven モジュールのソースと properties を走査して照合' : 'プラットフォーム標準プラグインのためソースなし',
       }],
-      docAnchors: ['2.2 コンポーネント・プラグイン一覧'],
+      docAnchors: [SEC.plugins],
     });
   }
   for (const d of asArray(correlation?.deadConfig)) {
@@ -615,7 +640,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('使用箇所', asArray(d.usedIn).join(' / ')),
       ],
       evidence: [{ kind: 'source', ref: d.file || 'プラグインソースを全文走査', note: 'properties 定義にも Java ソースにも該当なし' }],
-      docAnchors: ['2.2 コンポーネント・プラグイン一覧'],
+      docAnchors: [SEC.plugins],
     });
   }
 
@@ -655,7 +680,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         ref: 'アプリ定義中の参照',
         note: '標準・エンタープライズ版はアプリにソースが同梱されないため、設定項目の突合は実施できません',
       }],
-      docAnchors: ['2.2 コンポーネント・プラグイン一覧'],
+      docAnchors: [SEC.plugins],
     });
     if (!key) continue;
     note(key, 'info', '参照箇所と参照回数は読み取れています。設定項目が有効かどうかの判定はソースが無いため実施していません');
@@ -687,7 +712,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('定義', '.jwa 内に定義ブロックあり'),
       ],
       evidence: [{ kind: 'config', ref: 'アプリ定義の datasource', note: '' }],
-      docAnchors: ['7. 付録'],
+      docAnchors: [CH.appendix],
     });
   }
   // 参照されているだけのデータソース。定義がないので「未確認」扱い
@@ -706,7 +731,7 @@ export function buildObjectModel({ summary, correlation } = {}) {
         attr('接続先', '不明（静的解析では推測しません）'),
       ],
       evidence: [{ kind: 'config', ref: 'データリストの jdbcDatasource', note: '参照名のみ取得' }],
-      docAnchors: ['7. 付録'],
+      docAnchors: [CH.appendix],
     });
     note(k(OBJ.DATASOURCE, ref), 'info', '接続情報の定義が .jwa に含まれていないため、データ接続先は確認できません');
   }

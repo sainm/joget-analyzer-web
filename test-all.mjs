@@ -12,7 +12,7 @@
  *   - 実行できなかった対象は「スキップ」として必ず標準出力に残す。
  *     門を黙って緑にしてはならない（同じ穴を一度踏み抜いているため）。
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -113,14 +113,44 @@ for (const dir of targets) {
 
 /* 画面テストも解析対象ごとに回す。
  * 静的モデルが正しくても描画側で壊れている（関連パネルが空になる、
- * Mermaid が空のプレースホルダになる等）ため、両方を見る。 */
+ * Mermaid が空のプレースホルダになる等）ため、両方を見る。
+ *
+ * 画面テストはブラウザから HTTP を叩くため、事前にサーバーが必要。
+ * 起動していない場合はここで起こし、終了時に必ず閉じる
+ * （放ったままにすると次回のポート衝突になる。起こしていないものを
+ *  畳むと、ユーザーが自分で動かしていたサーバーを巻き添えにする）。 */
 const uiTest = path.join(ROOT, 'test-ui.mjs');
 if (!fs.existsSync(uiTest)) {
   skipped.push('画面テスト（test-ui.mjs なし）');
 } else {
-  for (const dir of targets) {
-    if (!fs.existsSync(dir)) continue;
-    run(`画面テスト — ${path.relative(ROOT, dir)}`, NODE, [uiTest], { JOGET_PROJECT: dir });
+  const httpUp = () => spawnSync(NODE, ['-e',
+    "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"],
+    { stdio: 'ignore' }).status === 0;
+
+  let server = null;
+  const wasUp = httpUp();
+  if (!wasUp) {
+    process.stdout.write('\n━━ サーバー起動（画面テスト用） ━━\n');
+    // 非同期 spawn で起動し、あとで kill する（spawnSync だと
+    // サーバーが終わるまで戻ってこない）
+    server = spawn(NODE, [path.join(ROOT, 'server.js')], { cwd: ROOT, stdio: 'ignore' });
+    for (let i = 0; i < 40 && !httpUp(); i++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+    if (!httpUp()) {
+      console.log('  ⇒ サーバーが起動できませんでした。画面テストを中止します');
+      server.kill('SIGTERM');
+      server = null;
+    }
+  }
+
+  try {
+    for (const dir of targets) {
+      if (!fs.existsSync(dir)) continue;
+      run(`画面テスト — ${path.relative(ROOT, dir)}`, NODE, [uiTest], { JOGET_PROJECT: dir });
+    }
+  } finally {
+    if (server) server.kill('SIGTERM');
   }
 }
 

@@ -2,10 +2,11 @@
  * test-object-model.mjs — 統合オブジェクトモデルの回帰テスト
  *
  * 画面を作る前に「オブジェクトモデルが正しい」ことを数値で固定する。
- * 特に次の3点を検証する:
+ * 特に次の点を検証する:
  *  1. 生成順によって関連が失われないこと（field ↔ column の双方向リンク）
  *  2. 関連が双方向であること（片側だけのリンクを作らない）
  *  3. 取れなかったものを 0 や空欄にしないこと（未確認が明示される）
+ *  4. 設計書の章との対応が壊れていないこと（docAnchors ↔ 実際の見出し）
  *
  * 使い方: node test-object-model.mjs
  *  JOGET_PROJECT  … 解析対象のプロジェクト（既定は同梱の Apache-2.0 サンプル）
@@ -14,10 +15,12 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { buildObjectModel, OBJ, STATUS } from './src/lib/objectModel.js';
+import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js';
 
 const require = createRequire(import.meta.url);
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
+const { generateDesignDoc } = require('./lib/designDoc');
 
 const PROJECT = process.env.JOGET_PROJECT || path.join(process.cwd(), 'fixtures', 'enhanced-json-api-main');
 
@@ -142,7 +145,7 @@ ok('プラグイン一覧の件数が参照クラス数と一致する',
   plugins.length === referencedClasses.size,
   `一覧 ${plugins.length} / 参照 ${referencedClasses.size}`);
 
-/* usedIn を持つプラグインは、宛先オブジェクトが存在する至少有 1 つ結び付ける。
+/* usedIn を持つプラグインは、宛先オブジェクトが存在する少なくとも 1 つ結び付ける。
  * 結び付けが 0 になる原因が「key をオブジェクトで返している」「関連を張る段階が早い」
  * のいずれの場合も、ここで落ちる。 */
 const withUsedIn = plugins.filter((p) => (p.attrs.find((a) => a.k === '使用箇所')?.v || '—') !== '—');
@@ -173,6 +176,68 @@ for (const c of m.coverage) {
 }
 ok('資産種別ごとに件数が算出されている', m.coverage.every((c) => typeof c.total === 'number'));
 ok('測定していない項目は「未計測」と明示される', m.coverage.every((c) => c.measured || c.total === 0));
+
+console.log('\n[6] 設計書との対応（docAnchors ↔ 実際の見出し）');
+/**
+ * docAnchors は「オブジェクト → 設計書のどの章」という対応である。
+ * 生成側（lib/designDoc.js）と参照側（src/lib/objectModel.js）は
+ * 見出しの語彙を lib/chapters.cjs で共有しているが、
+ * 「片方だけ見出しの形式を変えた」状態は語彙の共有では防げない。
+ * 実際に生成された設計書に対して照合できる形にして、ここで検証する。
+ *
+ * 参考: この検査が無いと、フォームの docAnchors が「3. フォーム名」のまま
+ * 実際の見出しが「3.1 フォーム名」に変わった状態で、
+ * 設計書センターからフォームへ戻れなくなっても、誰も気づけないまま納品される。
+ */
+const md = generateDesignDoc(summary, { correlation });
+const chapters = splitChapters(md);
+const byChapter = matchObjectsByChapter(chapters, m.objects);
+
+ok('設計書から章を取り出せる', chapters.length > 0, `${chapters.length} 章`);
+
+/* アンカーを持つオブジェクトは、どれか 1 章に紐づく必要がある。
+ * 紐づかない場合、詳細画面の「このオブジェクトを設計書で見る」が無言で壊れる。 */
+const withAnchors = m.objects.filter((o) => o.docAnchors.length);
+const linked = new Set([...byChapter.values()].flat().map((o) => o.key));
+const orphan = withAnchors.filter((o) => !linked.has(o.key));
+console.log(`  アンカーあり ${withAnchors.length} / 章に紐づく ${withAnchors.length - orphan.length}`);
+ok('アンカーを持つすべてのオブジェクトが設計書の章に紐づく',
+  orphan.length === 0,
+  `${orphan.length} 件が宙に浮いています: ${orphan.slice(0, 3).map((o) => `${o.type}:${o.id} ${JSON.stringify(o.docAnchors)}`).join(' / ')}`);
+
+/* 章 → オブジェクト数 を実測で出す。
+ * 「0」の章をすぐ失敗扱いにはしない。
+ * たとえば「1. 概要」は全書の導入であり、対象の集合を意図していない。
+ * 「6. 影響範囲分析」に SQL が無ければ 0 件になるが、それは解析対象の
+ * 性質であって欠陥ではない。
+ * 0 の章はそのまま一覧に出し、评审の材料として残す。 */
+/* フォームの精度検査。
+ * 「どこかの章に紐づけばよい」では不十分。紐づき先を 1 件でも確保すれば
+ * 通るだけだと、章を間違えても（フォームが「4. プロセス設計」に紐づいても）
+ * 気づけない。ここでは「自分自身の節が入っている章」に紐づくことを確かめる。
+ *
+ * 手順: 生成された設計書から見出しを拾い、フォーム名を含む節を探し、
+ * その節より前にある最上位の見出しを「正解の章」とする。 */
+const mdLines = md.split('\n');
+const topBefore = (idx) => mdLines.slice(0, idx).reverse().find((l) => /^##\s/.test(l))?.replace(/^##\s+/, '') || null;
+const forms = m.objects.filter((o) => o.type === OBJ.FORM);
+for (const f of forms) {
+  const name = f.name || f.id;
+  const ownIdx = mdLines.findIndex((line) => /^#{2,4}\s/.test(line) && line.includes(name));
+  const expected = ownIdx >= 0 ? topBefore(ownIdx) : null;
+  const actual = [...byChapter.entries()].filter(([, objs]) => objs.some((o) => o.key === f.key)).map(([t]) => t);
+  ok(`フォーム「${name}」が自分の節のある章（${expected || '不明'}）に紐づく`,
+    !!expected && actual.includes(expected),
+    `実際の紐づき: ${actual.join(' / ') || 'なし'}`);
+}
+console.log(`  フォーム ${forms.length} 件を検証`);
+
+for (const c of chapters) {
+  const hit = (byChapter.get(c.title) || []).length;
+  console.log(`    ${hit ? ' ' : '!'} ${c.title} ← ${hit} オブジェクト`);
+}
+const emptyChapterTitles = chapters.filter((c) => (byChapter.get(c.title) || []).length === 0).map((c) => c.title);
+console.log(`  オブジェクトが紐づかない章（内容が空なのは想定内）: ${emptyChapterTitles.length ? emptyChapterTitles.join(' / ') : 'なし'}`);
 
 console.log(`\n結果: ${failed ? `不合格 ${failed} 件` : '通過'}`);
 process.exit(failed ? 1 : 0);
