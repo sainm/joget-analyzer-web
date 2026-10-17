@@ -25,7 +25,7 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { scanPluginSource } = require('./lib/pluginScan');
@@ -491,6 +491,100 @@ ok('3.x の項目行がアプリ定義のフォーム項目と一致する',
   formRowMismatch.length === 0,
   formRowMismatch.slice(0, 3).map((f) => f.id).join(', '));
 console.log(`  3.x ${formSections.length} 節・${formSections.reduce((n, s) => n + s.rows.length, 0)} 行（モデルのフォーム ${formObjs.length} と突合）`);
+
+/* 6.x 影響範囲も統合オブジェクトモデルのビューから作る。
+ * 従来は analyze.js が app.forms / sql_effects / app.datalists を直接歩いて
+ * summary.impact を作り、設計書はそれを写していた。モデルに関連の知識が
+ * 増えたことで、モデルと解析エンジンで同じ結論が二重に生まれる状態だった。
+ *
+ * 突き合わせは 3 方向:
+ *   (a) app_summary.json の impact（画面・RAG・Mermaid が読む契約）と
+ *       モデルのビューが一致すること。キーを data/ の命名空間に戻す
+ *       変換が壊れていないかを見る。
+ *   (b) 設計書 6.1・6.2 の行がビューの内容を写していること。
+ *   (c) ビュー自体がアプリ定義の生データと一致すること。
+ *       (a)(b) はモデルとその写しの比較に過ぎず、モデルが項目を落とす
+ *       変更をしても両方が一緒に赤字を通る。生データとの突合だけが
+ *       それを検出できる。 */
+const toDataKeys = (map) => Object.fromEntries(Object.entries(map).map(([tk, v]) => [dataTableKey(tk), v]));
+ok('app_summary.json の impact の書込元がモデルのビューと一致する',
+  JSON.stringify(summary.impact?.writeMap || {}) === JSON.stringify(toDataKeys(m.impact.writeMap)),
+  `契約 ${Object.keys(summary.impact?.writeMap || {}).length} / モデル ${Object.keys(m.impact.writeMap).length}`);
+ok('app_summary.json の impact の参照元がモデルのビューと一致する',
+  JSON.stringify(summary.impact?.readMap || {}) === JSON.stringify(toDataKeys(m.impact.readMap)),
+  `契約 ${Object.keys(summary.impact?.readMap || {}).length} / モデル ${Object.keys(m.impact.readMap).length}`);
+ok('app_summary.json の impact の問題検出がモデルのビューと一致する',
+  JSON.stringify(summary.impact?.issues || []) === JSON.stringify(m.impact.issues),
+  `契約 ${(summary.impact?.issues || []).length} / モデル ${m.impact.issues.length}`);
+
+/* 6.1・6.2 の表。1 行目は見出しなので除く。 */
+const docWriteRows = (sectionRows(sections.writeSources) || []).slice(1);
+const docReadRows = (sectionRows(sections.readSources) || []).slice(1);
+const viewWriteRows = [];
+for (const [tid, entries] of Object.entries(m.impact.writeMap)) {
+  for (const e of entries) viewWriteRows.push([cellOf(tid), cellOf(e.source), cellOf(e.fields)]);
+}
+const viewReadRows = [];
+for (const [tid, entries] of Object.entries(m.impact.readMap)) {
+  for (const e of entries) viewReadRows.push([cellOf(tid), cellOf(e.source), cellOf(e.binder)]);
+}
+ok('6.1 の行がモデルのビューと一致する',
+  JSON.stringify(docWriteRows) === JSON.stringify(viewWriteRows),
+  `表 ${docWriteRows.length} 行 / モデル ${viewWriteRows.length} 行`);
+ok('6.2 の行がモデルのビューと一致する',
+  JSON.stringify(docReadRows) === JSON.stringify(viewReadRows),
+  `表 ${docReadRows.length} 行 / モデル ${viewReadRows.length} 行`);
+
+/* テーブル名は 5.1 と同じ物理名。data/ の名前空間（接頭辞なし）に戻ると、
+ * 同じテーブルが章ごとに違う名前になり、読み手が追えなくなる。
+ * テーブルオブジェクトが無い（サンプルデータも無い）テーブルは 5.1 に
+ * 載らないので、その点は除外する。 */
+const docImpactTables = [...new Set([...docWriteRows, ...docReadRows].map((r) => r[0]))];
+const impactNameOff = docImpactTables.filter((tid) => !tid.startsWith('app_fd_')
+  || (m.byKey.get(`table:${tid}`) && !tblRows.includes(tid)));
+ok('6.x のテーブル名が 5.1 と同じ物理名になっている',
+  impactNameOff.length === 0,
+  `${impactNameOff.length} 件不一致: ${impactNameOff.slice(0, 3).join(', ')}`);
+
+/* (c) 生データとの突合。期待値は app_summary.json の生の fields 相当から
+ * 自力で組み立てる（モデルのロジックを写さない）。順序は定義順と
+ * オブジェクト順で違い得るので、集合として比べる。 */
+const rawPrefix = (tk) => (String(tk).startsWith('app_fd_') ? String(tk) : `app_fd_${tk}`);
+const rawLogical = (c) => (String(c).startsWith('c_') ? String(c).slice(2) : String(c));
+const rawFormWrites = (summary.app.forms || [])
+  .filter((f) => f.tableName)
+  .map((f) => [rawPrefix(f.tableName), `フォーム ${f.name}(${f.id})`, '*']);
+const rawSqlWrites = (summary.sql_effects || [])
+  .filter((e) => e.table)
+  .flatMap((e) => (e.sets || []).map((s) => [rawPrefix(e.table), `プロセスSQL ${String(e.sql).slice(0, 60)}`, `${rawLogical(s.column)} = '${s.value}'`]));
+const rawFormById = Object.fromEntries((summary.app.forms || []).map((f) => [f.id, f]));
+const rawListReads = (summary.app.datalists || []).flatMap((d) => {
+  let tk = '';
+  if (d.formDefId && rawFormById[d.formDefId]) tk = rawFormById[d.formDefId].tableName;
+  if (!tk) {
+    const qm = String(d.query || '').match(/(?:FROM|JOIN)\s+app_fd_(\w+)/i);
+    if (qm) tk = qm[1];
+  }
+  return tk ? [[rawPrefix(tk), `リスト ${d.name}(${d.id})`, d.binder || '']] : [];
+});
+const sortedJson = (rows) => JSON.stringify(rows.map((r) => JSON.stringify(r)).sort());
+ok('モデルのビューの書込元がアプリ定義の生データと一致する',
+  sortedJson(rawFormWrites.concat(rawSqlWrites)) === sortedJson(viewWriteRows),
+  `生 ${rawFormWrites.length + rawSqlWrites.length} 行 / モデル ${viewWriteRows.length} 行`);
+ok('モデルのビューの参照元がアプリ定義の生データと一致する',
+  sortedJson(rawListReads) === sortedJson(viewReadRows),
+  `生 ${rawListReads.length} 行 / モデル ${viewReadRows.length} 行`);
+
+/* ビューはテーブルモデルに依存しない。フォームの tableName と SQL の
+ * 文字列、リストの参照から組むので、サンプルデータが無い古い解析結果でも
+ * 同じ結論にならなければならない。関連の解決先オブジェクトからテーブル名を
+ * 引く実装に戻すと、テーブルオブジェクトが無い旧結果で行が落ちる。 */
+ok('tableModel が無い解析結果でも影響範囲のビューは同じ',
+  JSON.stringify(mLegacy.impact.writeMap) === JSON.stringify(m.impact.writeMap)
+  && JSON.stringify(mLegacy.impact.readMap) === JSON.stringify(m.impact.readMap)
+  && JSON.stringify(mLegacy.impact.issues) === JSON.stringify(m.impact.issues),
+  `旧結果 書込 ${Object.keys(mLegacy.impact.writeMap).length} / 参照 ${Object.keys(mLegacy.impact.readMap).length} / 問題 ${mLegacy.impact.issues.length}`);
+console.log(`  6.x 書込 ${viewWriteRows.length} 行・参照 ${viewReadRows.length} 行・テーブル ${docImpactTables.length} 件（モデルのビューと突合）`);
 
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;
