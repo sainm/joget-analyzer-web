@@ -118,11 +118,39 @@ for (const dir of targets) {
  * 画面テストはブラウザから HTTP を叩くため、事前にサーバーが必要。
  * 起動していない場合はここで起こし、終了時に必ず閉じる
  * （放ったままにすると次回のポート衝突になる。起こしていないものを
- *  畳むと、ユーザーが自分で動かしていたサーバーを巻き添えにする）。 */
+ *  畳むと、ユーザーが自分で動かしていたサーバーを巻き添えにする）。
+ *
+ * サーバーが配るのは dist/（ビルド成果物）。src/ を直したあと
+ * build せずに回すと、ブラウザは古いバンドルを開き、新しい表示の
+ * 断言が「古いコードのせい」で落ちる（あるいは古い断言がそのまま
+ * 通ってしまう）。古い成果物での静かな通過を防ぐため、ここで必ず
+ * ビルドし直す。
+ *
+ * build が通らなかった場合は画面テストを回さない。古い dist のまま
+ * 回すと「画面テストは通った」と出てしまうため、回さずに不合格にする
+ * （古いバンドルでの绿灯は、新しいコードの検査になっていない）。 */
 const uiTest = path.join(ROOT, 'test-ui.mjs');
 if (!fs.existsSync(uiTest)) {
   skipped.push('画面テスト（test-ui.mjs なし）');
 } else {
+  const buildScript = path.join(ROOT, 'package.json');
+  let bundleFresh = true;
+  if (fs.existsSync(buildScript)) {
+    process.stdout.write('\n━━ 画面用バンドルのビルド（古い dist での静かな通過を防ぐ） ━━\n');
+    const br = spawnSync('npm', ['run', 'build'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: process.env,
+    });
+    bundleFresh = br.status === 0;
+    if (!bundleFresh) {
+      failed++;
+      console.log('  ⇒ ビルドに失敗したため画面テストは回しません（古いバンドルでの通過は新しいコードの検査にならない）');
+    }
+  }
+  if (!bundleFresh) {
+    skipped.push('画面テスト（ビルド失敗のため）');
+  } else {
   const httpUp = () => spawnSync(NODE, ['-e',
     "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"],
     { stdio: 'ignore' }).status === 0;
@@ -151,6 +179,7 @@ if (!fs.existsSync(uiTest)) {
     }
   } finally {
     if (server) server.kill('SIGTERM');
+  }
   }
 }
 

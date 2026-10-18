@@ -36,3 +36,6 @@ Thumbs.db
 .vscode/
 *.swp
 .workbuddy/
+
+# ── Vite の一時ファイル（設定読み込み時のタイムスタンプ付き複製）─────────
+vite.config.mjs.timestamp-*

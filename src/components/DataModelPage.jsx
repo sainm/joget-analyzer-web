@@ -89,7 +89,7 @@ export default function DataModelPage({ model, summary, manifest, onSelectObject
                 {tbl.sections.map((s, i) => (
                   <div key={i} className="mt-3">
                     <h3 className="mb-1.5 text-[12px] font-semibold text-ink-600">{s.title}</h3>
-                    {s.kind === 'table' && <SectionTable head={s.head} rows={s.rows} note={s.note} />}
+                    {s.kind === 'table' && <SectionTable head={s.head} rows={s.rows} note={s.note} badge={s.badge} />}
                   </div>
                 ))}
               </>

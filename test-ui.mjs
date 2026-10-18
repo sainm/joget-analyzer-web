@@ -155,6 +155,24 @@ try {
   check('「未確認は障害ではない」という説明がある', /実運用に問題があるかではなく/.test(ql));
   await shot('A6-quality.png');
 
+  console.log('\n[8b] データモデルの出処バッジ');
+  await nav('データモデル').click();
+  await page.waitForTimeout(900);
+  /* 既定で先頭のテーブルが選ばれる。カラム一覧の出処が色付きバッジに
+   * 折りたたまれているかを見る。
+   * 文字列だけの確認では不十分。長い説明文（BASIS_LABEL）にも短いラベルが
+   * 含まれるため、「フォーム定義」が正文に出ていても退化を検出できない。
+   * バッジ要素（title に正式な説明を持つ）の文字を直接比べる。 */
+  const dmTxt = await page.locator('main').innerText();
+  check('出処の凡例が出る', dmTxt.includes('出処：'));
+  const basisBadge = page.locator('main [title*="命名規約で生成"]').first();
+  check('出処がバッジとして存在する', (await basisBadge.count()) > 0);
+  check('バッジの文字が短いラベルになっている',
+    (await basisBadge.count()) > 0 && (await basisBadge.innerText()).trim() === 'フォーム定義');
+  check('バッジに正式な説明が title で付いている',
+    (await basisBadge.count()) > 0 && (await basisBadge.getAttribute('title')).includes('命名規約で生成'));
+  await shot('A6b-datamodel-basis.png');
+
   console.log('\n[9] オブジェクト一覧 → 詳細の全タブ');
   await nav('オブジェクト一覧').click();
   await page.waitForTimeout(900);

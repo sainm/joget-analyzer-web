@@ -22,3 +22,7 @@ export const buildObjectModel = model.buildObjectModel;
 export const chapters = model.chapters;
 export const sections = model.sections;
 export const formSectionPrefix = model.formSectionPrefix;
+/** カラムの出処の語彙（正式な説明・一覧用の短いラベル・脚注） */
+export const BASIS_LABEL = model.BASIS_LABEL;
+export const BASIS_SHORT = model.BASIS_SHORT;
+export const BASIS_LEGEND = model.BASIS_LEGEND;

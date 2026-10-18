@@ -25,7 +25,7 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey, BASIS_LABEL, BASIS_SHORT, BASIS_LEGEND } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { scanPluginSource } = require('./lib/pluginScan');
@@ -585,6 +585,39 @@ ok('tableModel が無い解析結果でも影響範囲のビューは同じ',
   && JSON.stringify(mLegacy.impact.issues) === JSON.stringify(m.impact.issues),
   `旧結果 書込 ${Object.keys(mLegacy.impact.writeMap).length} / 参照 ${Object.keys(mLegacy.impact.readMap).length} / 問題 ${mLegacy.impact.issues.length}`);
 console.log(`  6.x 書込 ${viewWriteRows.length} 行・参照 ${viewReadRows.length} 行・テーブル ${docImpactTables.length} 件（モデルのビューと突合）`);
+
+/* カラムの出処バッジ。
+ * 一覧では短いラベル（BASIS_SHORT）に折りたたみ、正式な説明は
+ * BASIS_LABEL と脚注（BASIS_LEGEND）に置く。画面はセルの文字列から
+ * 種別を逆引きするので、行の文字列が BASIS_LABEL の値と一致していないと
+ * バッジにならず、長い説明文がそのまま出てしまう（無言で元の表示に戻る）。
+ *
+ * 突き合わせは語彙そのものに対して行う。レンダリング結果と突き合わせる
+ * （バッジが出ているか確かめる）方法もあるが、それは画面側の話で、
+ * ここでは「逆引きが成立するデータが出ているか」を見る。 */
+const basisKeys = Object.keys(BASIS_LABEL);
+/* 凡例が見るのは短いラベル（バッジの文字）。正式な説明（BASIS_LABEL）は
+ * オブジェクト詳細の属性と title に出るので、凡例に逐字で含めるは求めない
+ * ——求めると凡例が「フォーム定義＝フォーム定義（命名規約で生成）」のような
+ * 同語反復になる。バッジの文字が凡例に無いと、色の意味が説明できない。 */
+ok('出処の凡例がバッジのすべての種別を説明している',
+  basisKeys.every((k) => BASIS_LEGEND.includes(BASIS_SHORT[k])),
+  `${BASIS_LEGEND.slice(0, 40)}…`);
+const columnSections = m.objects
+  .filter((o) => o.type === OBJ.TABLE)
+  .map((o) => o.sections.find((s) => s.title === 'カラム一覧'))
+  .filter(Boolean);
+ok('カラム一覧に出処バッジの指定がある',
+  columnSections.length > 0
+    && columnSections.every((s) => s.badge?.kind === 'basis'
+      && s.head[s.badge.column] === '導出根拠'),
+  `節 ${columnSections.length} 件`);
+const unresolvableBasis = columnSections.flatMap((s) => (s.rows || []).map((r) => r[s.badge.column]))
+  .filter((v) => !basisKeys.some((k) => BASIS_LABEL[k] === v));
+ok('カラム一覧の出処が語彙から逆引きできる',
+  unresolvableBasis.length === 0,
+  `${unresolvableBasis.length} 件: ${[...new Set(unresolvableBasis)].slice(0, 3).join(', ')}`);
+console.log(`  出処バッジ ${columnSections.length} 節・${columnSections.reduce((n, s) => n + (s.rows || []).length, 0)} 行（語彙 ${basisKeys.length} 種別）`);
 
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;

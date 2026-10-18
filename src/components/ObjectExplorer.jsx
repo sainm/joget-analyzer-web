@@ -276,7 +276,7 @@ function AttrsTab({ obj }) {
       {obj.sections.map((s, i) => (
         <div key={i}>
           <h3 className="mb-1.5 text-[12px] font-semibold text-ink-600">{s.title}</h3>
-          {s.kind === 'table' && <SectionTable head={s.head} rows={s.rows} note={s.note} />}
+          {s.kind === 'table' && <SectionTable head={s.head} rows={s.rows} note={s.note} badge={s.badge} />}
           {s.kind === 'kv' && <KeyValue items={s.items} />}
           {s.kind === 'code' && (
             <pre className="max-h-[320px] overflow-auto rounded-md bg-ink-900 p-3 font-mono text-[11px] leading-relaxed text-ink-100">
