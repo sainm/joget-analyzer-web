@@ -25,7 +25,7 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey, BASIS_LABEL, BASIS_SHORT, BASIS_LEGEND } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey, BASIS_LABEL, BASIS_SHORT, BASIS_LEGEND, CAUSE_LABEL, CAUSE_DESC, CAUSE_ORDER } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { scanPluginSource } = require('./lib/pluginScan');
@@ -618,6 +618,118 @@ ok('カラム一覧の出処が語彙から逆引きできる',
   unresolvableBasis.length === 0,
   `${unresolvableBasis.length} 件: ${[...new Set(unresolvableBasis)].slice(0, 3).join(', ')}`);
 console.log(`  出処バッジ ${columnSections.length} 節・${columnSections.reduce((n, s) => n + (s.rows || []).length, 0)} 行（語彙 ${basisKeys.length} 種別）`);
+
+/* 未確認の成因。
+ * 状態（STATUS）が「どこまで読めたか」を表すのに対し、成因は
+ * 「なぜ確定できなかったか」を表す。同じ未確認でも、ソースが無いだけの
+ * ものとアプリ定義自体が欠けているものは利用者の次の動作が違うので、
+ * 状態を決めたその場で成因も付けている。
+ *
+ * 突き合わせは app_summary.json の生データ（summary.app.* / plugin_refs /
+ * correlation）からの独立再推导で行う。モデルの unconfirmed を写した
+ * だけの門禁は、モデルが成因を落とす変更をしたときに一緒に緑になる
+ * （派生元と写しの門禁だけでは不十分、と同じ理由）。 */
+console.log('\n[7] 未確認の成因');
+const arr = (v) => (Array.isArray(v) ? v : []);
+const physName = (name) => (String(name || '').startsWith('app_fd_') ? String(name) : `app_fd_${name || ''}`);
+/* メニュー種別 → 対象の種類。Joget の約束で、モデルの MENU_TARGET と
+ * 同じ事実をテスト側で独立に持つ（モデルの定数を引くと、モデルが
+ * 変わった瞬間に門禁も一緒に変わる）。 */
+const MENU_TARGET_RAW = { FormMenu: 'form', CrudMenu: 'list', DataListMenu: 'list', ProcessListMenu: 'list' };
+const AUDIT_RAW = new Set(['id', 'dateCreated', 'dateModified', 'createdBy', 'modifiedBy', 'createdByName', 'modifiedByName']);
+const rawTableModel = summary.tableModel && Object.keys(summary.tableModel).length
+  ? summary.tableModel
+  : Object.fromEntries(Object.entries(summary.data || {}).map(([rawKey, info]) => [physName(rawKey), { ...info, all_fields: arr(info?.all_fields || info?.fields) }]));
+const rawForms = arr(summary.app?.forms);
+const rawLists = arr(summary.app?.datalists);
+const rawFormIds = new Set(rawForms.map((f) => f.id));
+const rawListIds = new Set(rawLists.map((l) => l.id));
+const rawCause = {};
+const bumpCause = (type, cz) => { const kk = `${type}|${cz}`; rawCause[kk] = (rawCause[kk] || 0) + 1; };
+for (const [tableId, tbl] of Object.entries(rawTableModel)) {
+  if (tbl.source === 'form') bumpCause('table', 'derived');
+  const formFields = new Map();
+  for (const fid of arr(tbl.formIds)) {
+    const f = rawForms.find((x) => x.id === fid);
+    for (const fld of arr(f?.fields)) formFields.set(`c_${fld.id}`, fld);
+  }
+  for (const col of arr(tbl.all_fields)) {
+    const basis = AUDIT_RAW.has(col) ? 'audit' : formFields.get(col) ? 'form' : !String(col).startsWith('c_') ? 'data' : 'unknown';
+    if (basis === 'form') bumpCause('column', 'derived');
+    else if (basis === 'unknown') bumpCause('column', 'unresolved-ref');
+  }
+}
+for (const f of rawForms) {
+  const tableId = f.tableName ? physName(f.tableName) : null;
+  if (tableId && !rawTableModel[tableId]) bumpCause('form', 'unresolved-ref');
+  for (const fld of arr(f.fields)) if (!fld.type) bumpCause('field', 'definition-gap');
+}
+for (const l of rawLists) {
+  const access = l.dataAccess || (l.formDefId ? 'form' : l.query ? 'sql' : 'unknown');
+  if (access === 'unknown') bumpCause('datalist', 'definition-gap');
+}
+for (const uv of arr(summary.app?.userviews)) {
+  for (const cat of arr(uv.categories)) {
+    for (const mn of arr(cat.menus)) {
+      const target = mn.target || '';
+      if (!target) { bumpCause('menu', 'definition-gap'); continue; }
+      const tt = MENU_TARGET_RAW[mn.type];
+      const resolved = (tt === 'form' && rawFormIds.has(target)) || (tt === 'list' && rawListIds.has(target));
+      if (!resolved) bumpCause('menu', 'unresolved-ref');
+    }
+  }
+}
+for (const p of arr(summary.xpdl?.processes)) {
+  const acts = arr(p.activities);
+  const trans = arr(p.transitions);
+  const ids = new Set(acts.map((a) => a.id));
+  const dangling = trans.filter((tr) => !ids.has(tr.from) || !ids.has(tr.to));
+  const isolated = acts.filter((a) => !trans.some((tr) => tr.from === a.id || tr.to === a.id));
+  if (dangling.length || isolated.length) bumpCause('process', 'definition-gap');
+  for (const a of acts) if (!a.implementation) bumpCause('activity', 'definition-gap');
+}
+{
+  /* プラグインの解析済は「ソース一致」または「無効設定の検出」の
+   * どちらかが成立したときだけ。それ以外はソース未提供。 */
+  const bindings = arr(correlation?.bindings);
+  const settled = new Set([
+    ...bindings.filter((b) => b.inSource).map((b) => b.className),
+    ...arr(correlation?.deadConfig).map((d) => d.className),
+  ]);
+  const classes = new Set([
+    ...Object.keys(summary.plugin_refs?.builtin || {}),
+    ...Object.keys(summary.plugin_refs?.marketplace || {}),
+    ...Object.keys(summary.plugin_refs?.enterprise || {}),
+    ...Object.keys(summary.plugin_refs?.custom || {}),
+    ...bindings.map((b) => b.className),
+    ...arr(correlation?.platform).map((p) => p.className),
+  ]);
+  for (const cls of classes) if (!settled.has(cls)) bumpCause('plugin', 'no-source');
+}
+{
+  const defined = new Set(arr(summary.datasources).map((d) => d.name || d.id || 'datasource'));
+  for (const ref of new Set(rawLists.map((l) => l.datasourceRef).filter(Boolean))) {
+    if (!defined.has(ref)) bumpCause('datasource', 'no-source');
+  }
+}
+const modelCause = {};
+for (const o of m.unconfirmed) { const kk = `${o.type}|${o.cause}`; modelCause[kk] = (modelCause[kk] || 0) + 1; }
+const causeDiff = [...new Set([...Object.keys(rawCause), ...Object.keys(modelCause)])]
+  .filter((kk) => (rawCause[kk] || 0) !== (modelCause[kk] || 0))
+  .map((kk) => `${kk}: 生データ ${rawCause[kk] || 0} / モデル ${modelCause[kk] || 0}`);
+ok('成因の件数がアプリ定義の生データと一致する', causeDiff.length === 0, causeDiff.slice(0, 4).join(' / '));
+const orphanCause = m.unconfirmed.filter((o) => !o.cause || !Object.prototype.hasOwnProperty.call(CAUSE_LABEL, o.cause));
+ok('未確認の全件に語彙内の成因が付いている', orphanCause.length === 0,
+  orphanCause.slice(0, 3).map((o) => `${o.type}:${o.id}`).join(', '));
+const staleCause = m.objects.filter((o) => o.status === STATUS.PARSED && o.cause);
+ok('解析済のオブジェクトに成因が残っていない', staleCause.length === 0,
+  staleCause.slice(0, 3).map((o) => `${o.type}:${o.id}`).join(', '));
+ok('成因の語彙が順序・ラベル・説明で網羅されている',
+  Object.keys(CAUSE_LABEL).every((kk) => CAUSE_ORDER.includes(kk) && CAUSE_DESC[kk])
+    && CAUSE_ORDER.every((kk) => CAUSE_LABEL[kk]),
+  `語彙 ${Object.keys(CAUSE_LABEL).length} 種別 / 順序 ${CAUSE_ORDER.length} 件`);
+const causeTotals = CAUSE_ORDER.map((cz) => `${CAUSE_LABEL[cz]} ${Object.entries(modelCause).filter(([kk]) => kk.endsWith(`|${cz}`)).reduce((s, [, n]) => s + n, 0)}`);
+console.log(`  成因: ${causeTotals.join(' / ')}`);
 
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;

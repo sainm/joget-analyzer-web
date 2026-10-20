@@ -20,6 +20,12 @@ import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'fs';
 import os from 'os';
 import path from 'path';
+import { createRequire } from 'module';
+
+/* 成因の語彙は統合オブジェクトモデルが持つ。画面の断言も同じ定義元と
+ * 突き合わせる（ここに文言を書き直すと、モデル側の変更に追いつかない）。 */
+const require = createRequire(import.meta.url);
+const { CAUSE_LABEL } = require('./lib/objectModel.js');
 
 const CANDIDATES = [
   path.join(os.homedir(), 'Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
@@ -53,6 +59,17 @@ page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 page.on('requestfailed', (r) => failedRequests.push(`${r.url()} → ${r.failure()?.errorText}`));
 
 const shot = async (n) => { await page.screenshot({ path: path.join(OUT, n), fullPage: true }); console.log('  📷', n); };
+/* 属性の値を待って取りに行く。getAttribute() は要素を待たないうえ
+ * 値の変化も待たないので、描画直後に呼ぶと古い値（または null）を
+ * 拾って「退化」と誤判定する。状態が変わる瞬間の断言はこれを使う。 */
+const waitForAttr = async (loc, name, value, ms = 4000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if ((await loc.getAttribute(name)) === value) return true;
+    await page.waitForTimeout(100);
+  }
+  return false;
+};
 function check(label, ok) {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`);
   if (ok) passed++;
@@ -172,6 +189,67 @@ try {
   check('バッジに正式な説明が title で付いている',
     (await basisBadge.count()) > 0 && (await basisBadge.getAttribute('title')).includes('命名規約で生成'));
   await shot('A6b-datamodel-basis.png');
+
+  console.log('\n[8c] 解析品質の成因（なぜ確認できなかったか）');
+  await nav('解析品質').click();
+  await page.waitForTimeout(900);
+  /* 状態（StatusTag）が「どこまで読めたか」、成因は「なぜ読めなかったか」。
+   * 同じ未確認でも、ソースが無いだけのものとアプリ定義自体が欠けている
+   * ものは利用者の次の動作が違うので、行として出て絞り込めることを見る。
+   * 絞り込みの検証は「先頭の成因行」で行う。特定の成因の有無は解析対象に
+   * よって変わるため、ここに固有の成因名やオブジェクト名を書かない
+   * （書きどめると、その対象でしか通らない門禁になる）。
+   *
+   * count() と getAttribute() は要素を待たない。描画が終わる前に数えると
+   * 「まだ無い」を取り違えになるので、状態が変わるたびに要素の出現を待つ。 */
+  const causeRows = page.getByTestId('cause-rows').locator('button[aria-pressed]');
+  await causeRows.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  const ql2 = await page.locator('main').innerText();
+  check('成因の内訳の見出しが出る', ql2.includes('未確認の成因'));
+  check('成因の説明が出る', ql2.includes('なぜ確認できなかったか'));
+  check('成因の行が出る', (await causeRows.count()) > 0);
+  const firstCause = causeRows.first();
+  check('成因の行に件数が出る', /\d/.test(await firstCause.innerText()));
+  const itemLis = page.getByTestId('unconfirmed-rows').locator('li');
+  const causeBadges = page.getByTestId('unconfirmed-rows').locator('li [title]');
+  check('一覧の全項目に成因バッジが出る',
+    (await itemLis.count()) > 0 && (await causeBadges.count()) === (await itemLis.count()));
+  /* 行が絞り込みになる。件数と絞り込み後の行数が一致すること、
+   * 残ったバッジがすべてその成因であることを見る。バッジの title は
+   * モデルの CAUSE_DESC で、行のバッジと同じ title を持つ。種別が違う
+   * ものが混ざると title が違い、この件数で検出できる。 */
+  const firstN = Number((await firstCause.innerText()).match(/\d+/)[0]);
+  await firstCause.click();
+  await itemLis.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  const filteredN = await itemLis.count();
+  check('成因で絞り込める', filteredN === firstN && firstN > 0, `行 ${filteredN} / 件数 ${firstN}`);
+  const firstTitle = await firstCause.locator('[title]').first().getAttribute('title');
+  const sameCauseBadges = page.getByTestId('unconfirmed-rows').locator(`li [title="${firstTitle}"]`);
+  check('絞り込み後のバッジがすべてその成因', (await sameCauseBadges.count()) === filteredN);
+  check('絞り込み中の行が押下状態になる', await waitForAttr(firstCause, 'aria-pressed', 'true'));
+  await firstCause.click();
+  await page.waitForTimeout(200);
+  check('もう一度押すと絞り込みが外れる', await waitForAttr(firstCause, 'aria-pressed', 'false'));
+  /* 詳細側にも同じ語彙で出る。一覧と詳細で言い方が分かれると、
+   * 利用者がどちらを信じてよいか判断できない。
+   * 対象は「未確認」で絞った先頭のオブジェクト。種別は解析対象に
+   * よって変わるので、オブジェクト一覧から選ぶ（ここでも固有名を書かない）。 */
+  await nav('オブジェクト一覧').click();
+  await page.waitForTimeout(900);
+  await inMain().getByRole('button', { name: '未確認', exact: true }).click();
+  await page.waitForTimeout(500);
+  if ((await page.getByTestId('object-rows').locator('button').count()) === 0) {
+    await inMain().getByRole('button', { name: '一部のみ', exact: true }).click();
+    await page.waitForTimeout(500);
+  }
+  await page.getByTestId('object-rows').locator('button').first().click();
+  const detailCause = page.getByTestId('detail-cause');
+  await detailCause.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  const causeText = (await detailCause.count()) > 0 ? await detailCause.innerText() : '';
+  check('対象の詳細に成因が出る',
+    causeText.includes('成因：') && Object.values(CAUSE_LABEL).some((l) => causeText.includes(l)),
+    causeText.slice(0, 30));
+  await shot('A6c-quality-cause.png');
 
   console.log('\n[9] オブジェクト一覧 → 詳細の全タブ');
   await nav('オブジェクト一覧').click();

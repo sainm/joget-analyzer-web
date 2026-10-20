@@ -26,3 +26,7 @@ export const formSectionPrefix = model.formSectionPrefix;
 export const BASIS_LABEL = model.BASIS_LABEL;
 export const BASIS_SHORT = model.BASIS_SHORT;
 export const BASIS_LEGEND = model.BASIS_LEGEND;
+/** 未確認の成因の語彙（ラベル・説明・一覧の並び順） */
+export const CAUSE_LABEL = model.CAUSE_LABEL;
+export const CAUSE_DESC = model.CAUSE_DESC;
+export const CAUSE_ORDER = model.CAUSE_ORDER;

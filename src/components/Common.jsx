@@ -1,5 +1,5 @@
 import React from 'react';
-import { STATUS, STATUS_LABEL, objTypeLabel, BASIS_LABEL, BASIS_SHORT } from '../lib/objectModel.js';
+import { STATUS, STATUS_LABEL, objTypeLabel, BASIS_LABEL, BASIS_SHORT, CAUSE_LABEL, CAUSE_DESC } from '../lib/objectModel.js';
 
 /**
  * 画面全体で共有する小さな表示部品。
@@ -47,6 +47,36 @@ export function TypeTag({ type }) {
   return (
     <span className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${TYPE_STYLE[type] || 'border-ink-200 bg-ink-50 text-ink-600'}`}>
       {objTypeLabel(type)}
+    </span>
+  );
+}
+
+/* 成因の色。状態（一部のみ＝amber 等）と同じ色を使うと、
+ * 「状態」と「成因」の二つの軸が混ざって見えるので別の色を割り当てる。
+ * 定義の欠落・参照先未確認は利用者が確認すべき可能性があるので
+ * 暖色～赤系、規約からの導出とソース未提供は静的解析の制約なので寒色～無彩色。 */
+const CAUSE_STYLE = {
+  'definition-gap': 'border-amber-300 bg-amber-100 text-amber-800',
+  'unresolved-ref': 'border-rose-200 bg-rose-50 text-rose-700',
+  'derived': 'border-sky-200 bg-sky-50 text-sky-700',
+  'no-source': 'border-ink-200 bg-ink-100 text-ink-600',
+};
+
+/**
+ * 未確認の成因バッジ。
+ * 状態（StatusTag）が「どこまで読めたか」、こちらは「なぜ確定できなかったか」。
+ * 色に加えて必ず文字を出し、正式な説明は title に置く。
+ * 語彙は objectModel の CAUSE_LABEL / CAUSE_DESC を引き、ここで定義し直さない。
+ */
+export function CauseTag({ cause }) {
+  const label = CAUSE_LABEL[cause];
+  if (!label) return null;
+  return (
+    <span
+      title={CAUSE_DESC[cause]}
+      className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${CAUSE_STYLE[cause] || CAUSE_STYLE['no-source']}`}
+    >
+      {label}
     </span>
   );
 }

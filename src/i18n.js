@@ -287,6 +287,8 @@ export const T = {
   'ql.unconfirmedHint': '静的解析では確定できなかった項目です。実運用に問題があるかではなく、解析の到達範囲を示します',
   'ql.notMeasured': '未計測',
   'ql.searchPlaceholder': '未確認項目を検索',
+  'ql.causeTitle': '未確認の成因',
+  'ql.causeHint': 'なぜ確認できなかったかの内訳です。行を選ぶと一覧を絞り込めます',
 
   'pr.node': 'ノード',
   'pr.transition': '遷移',

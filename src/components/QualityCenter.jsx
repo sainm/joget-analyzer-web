@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { t } from '../i18n.js';
-import { STATUS, STATUS_LABEL, objTypeLabel } from '../lib/objectModel.js';
+import { STATUS, STATUS_LABEL, objTypeLabel, CAUSE_LABEL, CAUSE_DESC, CAUSE_ORDER } from '../lib/objectModel.js';
 import { PageHead } from './Shell.jsx';
-import { StatusTag, TypeTag, EmptyNote } from './Common.jsx';
+import { StatusTag, TypeTag, CauseTag, EmptyNote } from './Common.jsx';
 
 /**
  * 解析品質。
@@ -11,10 +11,16 @@ import { StatusTag, TypeTag, EmptyNote } from './Common.jsx';
  * どの資産をどこまで読み取れたのか、どの資産が読み取れなかったのかを
  * 資産種別ごとに明示し、未確認の項目へ直接辿れるようにする。
  * 一つの割合で全体を代表させることはしない。
+ *
+ * 未確認は「なぜ確定できなかったか」（成因）で分けて示す。
+ * 同じ未確認でも、ソースが無いだけのものとアプリ定義自体が
+ * 欠けているものは、利用者の次の動作が違う。状態（StatusTag）が
+ * 「どこまで読めたか」、成因（CauseTag）は「なぜ読めなかったか」。
  */
 export default function QualityCenter({ model, onSelectObject }) {
   const [q, setQ] = useState('');
   const [type, setType] = useState('all');
+  const [cause, setCause] = useState('all');
 
   const unconfirmed = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -22,6 +28,20 @@ export default function QualityCenter({ model, onSelectObject }) {
       .filter((o) => (type === 'all' ? true : o.type === type))
       .filter((o) => (n ? o.name.toLowerCase().includes(n) || o.id.toLowerCase().includes(n) : true));
   }, [model, q, type]);
+
+  /* 成因の件数は検索・種別フィルタの範囲で数える。
+   * cause フィルタ自身は適用しない——絞り込み前に「全体の内訳」が
+   * 見えないと、行を選ぶ意味が分からないため。 */
+  const causeCounts = useMemo(() => {
+    const c = {};
+    for (const o of unconfirmed) c[o.cause] = (c[o.cause] || 0) + 1;
+    return c;
+  }, [unconfirmed]);
+
+  const visible = useMemo(
+    () => unconfirmed.filter((o) => (cause === 'all' ? true : o.cause === cause)),
+    [unconfirmed, cause],
+  );
 
   const typesInUnconfirmed = useMemo(() => {
     const c = {};
@@ -86,7 +106,7 @@ export default function QualityCenter({ model, onSelectObject }) {
             <p className="mt-0.5 text-[11px] text-ink-400">{t('ql.unconfirmedHint')}</p>
           </div>
           <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-[12px] tabular-nums text-ink-600">
-            {unconfirmed.length} / {totalUnconfirmed}
+            {visible.length} / {totalUnconfirmed}
           </span>
         </header>
 
@@ -114,13 +134,39 @@ export default function QualityCenter({ model, onSelectObject }) {
           ))}
         </div>
 
-        {unconfirmed.length === 0 ? (
+        {/* 成因の内訳。行自身が絞り込みの切り替えになる（フィルタ UI を
+         * 二重に増やさない）。出現している成因だけをモデルの並び順で出す。 */}
+        {CAUSE_ORDER.filter((cz) => causeCounts[cz]).length > 0 && (
+          <div className="border-b border-ink-100 px-4 py-2.5">
+            <h3 className="text-[12px] font-semibold text-ink-700">{t('ql.causeTitle')}</h3>
+            <p className="mt-0.5 text-[11px] text-ink-400">{t('ql.causeHint')}</p>
+            <ul className="mt-2 space-y-1" data-testid="cause-rows">
+              {CAUSE_ORDER.filter((cz) => causeCounts[cz]).map((cz) => (
+                <li key={cz}>
+                  <button
+                    onClick={() => setCause(cause === cz ? 'all' : cz)}
+                    aria-pressed={cause === cz}
+                    className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition ${
+                      cause === cz ? 'border-brand-300 bg-brand-50' : 'border-ink-200 bg-white hover:bg-ink-50'
+                    }`}
+                  >
+                    <CauseTag cause={cz} />
+                    <span className="w-8 shrink-0 text-right text-[12px] font-semibold tabular-nums text-ink-700">{causeCounts[cz]}</span>
+                    <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-500">{CAUSE_DESC[cz]}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {visible.length === 0 ? (
           <div className="p-4">
             <EmptyNote>この条件に該当する未確認項目はありません。</EmptyNote>
           </div>
         ) : (
-          <ul className="max-h-[520px] divide-y divide-ink-100 overflow-y-auto">
-            {unconfirmed.map((o) => (
+          <ul className="max-h-[520px] divide-y divide-ink-100 overflow-y-auto" data-testid="unconfirmed-rows">
+            {visible.map((o) => (
               <li key={o.key}>
                 <button onClick={() => onSelectObject(o.key)} className="flex w-full items-start gap-2.5 px-4 py-2 text-left transition hover:bg-ink-50">
                   <span className="mt-0.5 shrink-0">
@@ -130,7 +176,9 @@ export default function QualityCenter({ model, onSelectObject }) {
                     <span className="block truncate text-[13px] font-medium text-ink-800">{o.name}</span>
                     <span className="block truncate text-[11px] text-ink-500">{o.brief}</span>
                   </span>
-                  <span className="mt-0.5 shrink-0">
+                  <span className="mt-0.5 flex shrink-0 items-center gap-1.5">
+                    {/* 状態と成因は別の軸。なぜ未確認なのかを一覧でも示す */}
+                    <CauseTag cause={o.cause} />
                     <StatusTag status={o.status} />
                   </span>
                 </button>

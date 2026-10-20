@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { t } from '../i18n.js';
-import { OBJ, STATUS, STATUS_LABEL, objTypeLabel } from '../lib/objectModel.js';
+import { OBJ, STATUS, STATUS_LABEL, objTypeLabel, CAUSE_LABEL, CAUSE_DESC } from '../lib/objectModel.js';
 import { PageHead } from './Shell.jsx';
 import { StatusTag, TypeTag, SectionTable, EmptyNote } from './Common.jsx';
 
@@ -219,6 +219,14 @@ function SummaryTab({ model, obj, checks }) {
     <div className="space-y-4">
       <div className={`rounded-md border px-3 py-2 text-[12px] ${toneBorder(obj.status)} ${toneText(obj.status)}`}>
         <b>{STATUS_LABEL[obj.status]}</b> — {statusSub[obj.status]}
+        {/* 状態が「どこまで読めたか」、成因は「なぜ読めなかったか」。
+         *  一覧（品質ページ）と同じ語彙を引き、ここだけ別の言い方をしない。
+         *  正式な説明は title に置き、行が伸びないようにする。 */}
+        {obj.cause && (
+          <span data-testid="detail-cause" className="ml-1.5 underline decoration-dotted decoration-ink-300" title={CAUSE_DESC[obj.cause]}>
+            成因：{CAUSE_LABEL[obj.cause]}
+          </span>
+        )}
       </div>
 
       <KeyValue items={obj.attrs} />
