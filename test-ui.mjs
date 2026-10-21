@@ -25,7 +25,7 @@ import { createRequire } from 'module';
 /* 成因の語彙は統合オブジェクトモデルが持つ。画面の断言も同じ定義元と
  * 突き合わせる（ここに文言を書き直すと、モデル側の変更に追いつかない）。 */
 const require = createRequire(import.meta.url);
-const { CAUSE_LABEL, CAUSE_DESC } = require('./lib/objectModel.js');
+const { CAUSE_LABEL, CAUSE_DESC, OBJ } = require('./lib/objectModel.js');
 
 /* [14] の「未計測のルール」の期待値は、解析エンジンからその場で組む
  * （理由は下の findJwa の直前の注を参照）。 */
@@ -109,8 +109,10 @@ const waitForAttr = async (loc, name, value, ms = 4000) => {
   }
   return false;
 };
-function check(label, ok) {
-  console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+/* 失敗したときだけ補足を出す。件数のように「いくつ対いくつ」で落ちる
+ * 断言は、差が出たことだけ分かっても原因が追えない。 */
+function check(label, ok, extra = '') {
+  console.log(`  ${ok ? '✓' : '✗'} ${label}${!ok && extra ? `  ${extra}` : ''}`);
   if (ok) passed++;
   else failures.push(label);
 }
@@ -181,13 +183,18 @@ try {
     ['設計書', 'A5l-doc.png'],
   ];
   console.log('\n[6] 全画面を順に開く（見出し・日本語・中身の存在）');
+  /* プロセスを持たないアプリ（XPDL が空）では、プロセス定義ページは
+   * 「見つかりません」という空状態を出すのが正しい。正文の長さだけで
+   * 判定すると、正しい空状態を退化と誤判定する。期待値はモデルから取る。 */
+  const hasNoProcesses = (expectedModel.stats.byType[OBJ.PROCESS] || 0) === 0;
   for (const [label, file] of NAV_ITEMS) {
     await nav(label).click();
     await page.waitForTimeout(label === '設計書' ? 1400 : 900);
     const txt = await page.locator('main').innerText();
     const h1 = await page.locator('main h1').first().innerText().catch(() => '');
     check(`${label}: 見出しが出る`, h1.length > 0);
-    check(`${label}: 画面が空でない`, txt.replace(/\s/g, '').length > 40);
+    const honestEmpty = label === 'プロセス定義' && hasNoProcesses && /プロセス（XPDL）が見つかりません/.test(txt);
+    check(`${label}: 画面が空でない`, txt.replace(/\s/g, '').length > 40 || honestEmpty);
     await shot(file);
   }
 
@@ -318,10 +325,31 @@ try {
 
   console.log('\n[9] オブジェクト一覧 → 詳細の全タブ');
   await nav('オブジェクト一覧').click();
-  await page.waitForTimeout(900);
-  const rowCount = await page.getByTestId('object-rows').locator('button').count();
-  check('オブジェクト行が並んでいる', rowCount > 5);
-  await page.getByTestId('object-rows').locator('button').first().click();
+  /* 直前の [8c] が「未確認」で絞ったままなので、まず解析状態の絞り込みを
+   * 解除する（解除しないと行数は「未確認の件数」になり、小さなアプリでは
+   * 数件しか出ない）。種別側の「すべて」ではなく、状態側の「解析状態」を
+   * 押す——種別の絞り込みは元から all なので押しても状態は変わらない。
+   * 件数はモデルの総数と突き合わせ、DOM がその件数になるまで待つ
+   * （count() は要素も更新も待たない）。 */
+  await inMain().getByRole('button', { name: '解析状態', exact: true }).click();
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('[data-testid="object-rows"] button').length === n,
+    expectedModel.objects.length,
+    { timeout: 10000 },
+  ).catch(() => {});
+  const objectRows = page.getByTestId('object-rows').locator('button');
+  const rowCount = await objectRows.count();
+  check('オブジェクト行が並んでいる', rowCount === expectedModel.objects.length,
+    `行 ${rowCount} / モデル ${expectedModel.objects.length}`);
+  /* 見出しの件数は rows.length（＝画面が数えた件数）、行数は実際の DOM。
+   * 両者が食い違うのは、同じ key の行が二重に出ているか、前の描画が
+   * 残っているときで、どちらも一覧から対象を開けなくなる不具合になる。
+   * 件数と行数は同じ画面の別々の経路から取るので、片方が壊れても
+   * もう片方は正しい——一致を見れば二重描画を捕まえられる。 */
+  const shownCount = Number((await page.getByTestId('object-count').innerText()).replace(/[^\d]/g, ''));
+  check('一覧の行数が件数表示と一致する（二重描画が無い）', shownCount === rowCount,
+    `表示 ${shownCount} / 行 ${rowCount}`);
+  await objectRows.first().click();
   await page.waitForTimeout(700);
   const det = await page.locator('main').innerText();
   check('詳細が開く', det.includes('属性と構成') && det.includes('解析の根拠'));
@@ -349,18 +377,26 @@ try {
   console.log('\n[11] プロセス定義（フロー図が出ること）');
   await nav('プロセス定義').click();
   await page.waitForTimeout(2600);
-  const prSvg = await page.locator('.mermaid-host svg').count();
-  const prErr = await page.locator('.bg-rose-50').count();
-  check('フロー図の SVG が描画されている', prSvg >= 1);
-  check('図のエラー枠がない', prErr === 0);
-  // 「見つかりません」は flowChart の空プレースホルダ。summary と summary.xpdl を
-  // 取り違えると、図は出るのに中身がこのプレースホルダだけになる（サイレント故障）。
-  const prSvgText = await svgText();
-  check('フロー図が空のプレースホルダではない', !/見つかりません/.test(prSvgText));
   const pr = await page.locator('main').innerText();
-  check('ノード一覧がある', /ノード/.test(pr));
-  check('遷移表がある', /遷移/.test(pr));
-  check('開始・終了が推定である旨がある', /推定/.test(pr));
+  if (hasNoProcesses) {
+    /* プロセスを持たないアプリでは、図を描かずに「見つかりません」と
+     * 言うのが正しい。空のプレースホルダ図を描くと「解析に失敗した」
+     * ように見えるため、図が無いことも併せて確かめる。 */
+    check('プロセスが無い旨が説明される', /プロセス（XPDL）が見つかりません/.test(pr));
+    check('プロセスが無いときに空の図を描かない', (await page.locator('.mermaid-host svg').count()) === 0);
+  } else {
+    const prSvg = await page.locator('.mermaid-host svg').count();
+    const prErr = await page.locator('.bg-rose-50').count();
+    check('フロー図の SVG が描画されている', prSvg >= 1);
+    check('図のエラー枠がない', prErr === 0);
+    // 「見つかりません」は flowChart の空プレースホルダ。summary と summary.xpdl を
+    // 取り違えると、図は出るのに中身がこのプレースホルダだけになる（サイレント故障）。
+    const prSvgText = await svgText();
+    check('フロー図が空のプレースホルダではない', !/見つかりません/.test(prSvgText));
+    check('ノード一覧がある', /ノード/.test(pr));
+    check('遷移表がある', /遷移/.test(pr));
+    check('開始・終了が推定である旨がある', /推定/.test(pr));
+  }
   await shot('A9-process.png');
 
   console.log('\n[12] データモデル（テーブル / ER 図 / 読み書き影響 / SQL）');

@@ -52,7 +52,10 @@ export default function ObjectExplorer({ model, view, selectedKey, onSelect, ini
         title={view?.title || t('nav.objects')}
         lead={view?.lead}
         right={
-          <span className="rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[12px] tabular-nums text-ink-600">
+          <span
+            data-testid="object-count"
+            className="rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[12px] tabular-nums text-ink-600"
+          >
             {t('ob.count', { n: rows.length })}
           </span>
         }

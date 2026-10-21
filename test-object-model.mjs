@@ -105,6 +105,20 @@ ok('フォームが生成される', (m.stats.byType[OBJ.FORM] || 0) > 0);
 ok('テーブルが生成される', (m.stats.byType[OBJ.TABLE] || 0) > 0);
 ok('メニューまたはリストが生成される', (m.stats.byType[OBJ.MENU] || 0) + (m.stats.byType[OBJ.LIST] || 0) > 0);
 
+/* 一覧・詳細・関連はすべて key を同一性の根拠にしている。key が重複すると
+ * byKey は後勝ちで上書きし、そのオブジェクトは画面上どこからも開けなくなる。
+ * しかも一覧の行数は model.objects.length のままなので、件数を見ても
+ * 気づけない（実際に form-data-archive-tool で field:section2 が 2 つ出て、
+ * 一覧の行数と React の key が同時におかしくなった）。Joget のセクション
+ * 項目は section1 / section2 を複数のフォームで使い回すため、項目ID だけ
+ * では足りない——親（フォーム・テーブル・プロセス）を前置する。 */
+const keys = m.objects.map((o) => o.key);
+const dupKeys = [...new Set(keys.filter((kk, i) => keys.indexOf(kk) !== i))];
+ok('オブジェクトの key が一意（重複すると詳細を開けない対象が出る）',
+  dupKeys.length === 0, `${keys.length} 件中 ${dupKeys.length} 種が重複 ${JSON.stringify(dupKeys.slice(0, 5))}`);
+ok('byKey から全オブジェクトを引ける', m.byKey.size === m.objects.length,
+  `byKey ${m.byKey.size} / objects ${m.objects.length}`);
+
 console.log('\n[2] 関連の整合性（回帰: 生成順で関連を失わない）');
 let broken = 0;
 let asym = 0;

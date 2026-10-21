@@ -8,6 +8,7 @@
 | パス | 内容 | ライセンス / 扱い |
 |---|---|---|
 | `enhanced-json-api-main/` | Joget マーケットプレイスプラグイン `org.joget.marketplace:enhanced-json-api` のソース（`pom.xml` + `src/main/java` + `properties/*.json` + `messages/*.properties`）と、同梱のサンプルアプリ `.jwa` | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
+| `form-data-archive-tool/APP_FormDataArchiveToolSampleApp-7-20260116134435.jwa` | [jogetoss/form-data-archive-tool](https://github.com/jogetoss/form-data-archive-tool) の同梱サンプルアプリ。4 つのフォームが `section1` / `section2` という同じ項目ID を使い回す | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `rfq/APP_RFQ-1-20260131145603.jwa` | 業務アプリ「RFQ Management」のエクスポートパッケージ。多テーブル・承認プロセス・SQL 副作用を含む重い検証用 | 顧客資産。**`.gitignore` でコミット対象外**。手元にのみ配置 |
 
 ## 使い方
@@ -16,6 +17,7 @@
 
 ```
 fixtures/enhanced-json-api-main        # プラグインソース + アプリ → 突合まで通しで動く
+fixtures/form-data-archive-tool        # .jwa 単体（突合なしの経路）
 fixtures/rfq                           # アプリ単体（手元に .jwa を置いた場合）
 ```
 
@@ -37,6 +39,20 @@ unzip -p fixtures/enhanced-json-api-main/APP_EnhancedJSONAPISampleApp-1-20241101
   | grep -o 'org\.joget\.[A-Za-z0-9_.$]*' | sort -u | wc -l
 # => 25
 ```
+
+`form-data-archive-tool` を指定した場合（プラグインソース無し＝突合なしの経路）：
+
+- オブジェクト **158** 件（テーブル **4** / カラム **82** / フォーム **4** / フォーム項目 **32** / データリスト **4** /
+  メニュー **5** / プロセス **1** / ノード **1** / プラグイン **25**）
+- 未確認 **56** 件（定義欠落 **2** / 規約導出 **30** / ソース未提供 **24**）
+- 静的チェックは **STRUCT 26** 件のみ。SQL は定義に無く、突合できないため CFG-DECL と REF-CLASS は未計測
+
+**この素材を外せない理由**：4 つのフォームが `section1` / `section2` という同じ項目ID を使い回します。
+項目の同一性を「項目ID だけ」で決めていると、別フォームの同名項目が 1 つに潰れ、一覧の行数が
+総件数より増え（158 件のはずが 160 行）、`byKey` から引けないオブジェクトが生まれます
+（詳細を開けない・関連が片側になる）。`test-object-model.mjs` の
+「オブジェクトの key が一意」「byKey から全オブジェクトを引ける」と、`test-ui.mjs` の
+「一覧の行数が件数表示と一致する（二重描画が無い）」がこの素材で初めて効きます。
 
 `rfq` を指定した場合（手元に .jwa があるとき）：
 
