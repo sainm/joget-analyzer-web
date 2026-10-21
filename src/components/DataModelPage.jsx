@@ -132,10 +132,25 @@ export default function DataModelPage({ model, summary, manifest, onSelectObject
         <div className="rounded-lg border border-ink-200 bg-white">
           <header className="border-b border-ink-100 px-4 py-2.5">
             <h2 className="text-[13px] font-semibold text-ink-800">{t('dm.sql')}</h2>
-            <p className="mt-0.5 text-[11px] text-ink-400">{t('dm.noSql')}</p>
+            <p className="mt-0.5 text-[11px] text-ink-400">{t('dm.sqlScope')}</p>
           </header>
           {sqlObjs.length === 0 ? (
-            <div className="p-4"><EmptyNote>{t('dm.noSql')}</EmptyNote></div>
+            /* 0 件には 2 通りある。本当に SQL が出てこない場合と、フォームや
+             * 一覧に埋め込まれた SQL の参照先テーブルだけは読めている場合。
+             * 後者を「SQL はありません」と言うと、同じアプリのプラグイン画面が
+             * 「データモデル外のテーブル参照 N 種」と言っているのと食い違う。 */
+            <div className="p-4" data-testid="sql-empty">
+              {model.sqlCoverage.externalStatements > 0 ? (
+                <EmptyNote>
+                  {t('dm.sqlTableOnly', {
+                    n: model.sqlCoverage.externalStatements,
+                    tables: model.sqlCoverage.externalTables.join(' / '),
+                  })}
+                </EmptyNote>
+              ) : (
+                <EmptyNote>{t('dm.noSql')}</EmptyNote>
+              )}
+            </div>
           ) : (
             <ul className="divide-y divide-ink-100">
               {sqlObjs.map((o) => (

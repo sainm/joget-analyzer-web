@@ -419,7 +419,30 @@ try {
   await inMain().getByRole('button', { name: /^SQL/ }).click();
   await page.waitForTimeout(700);
   const sqlTab = await page.locator('main').innerText();
-  check('SQL タブが開く', /SQL/.test(sqlTab));
+  /* 以前は本文に「SQL」があることだけを見ていたが、タブの名前自体が SQL なので
+   * 中身が空でも通る（空洞的な真）。まず読めている範囲の説明が出ていることを見る。 */
+  check('SQL タブに読み取り範囲の説明が出る', /列まで読み取っているのは/.test(sqlTab));
+  /* 0 件には 2 通りある。SQL 文が本当に無い場合と、フォームや一覧に埋め込まれた
+   * SQL の参照先テーブルだけ読めている場合。期待値はモデルの到達範囲から取る。 */
+  const sqlObjN = expectedModel.objects.filter((o) => o.type === OBJ.SQL).length;
+  const extN = expectedModel.sqlCoverage.externalStatements;
+  if (sqlObjN === 0) {
+    const emptyBox = page.getByTestId('sql-empty');
+    const emptyTxt = (await emptyBox.count()) ? await emptyBox.innerText() : '';
+    if (extN > 0) {
+      check('SQL 文が無くても参照先テーブルの読み取りを明示する',
+        emptyTxt.includes(`${extN} 件`) && /参照先テーブルまでは読み取り済み/.test(emptyTxt),
+        emptyTxt.slice(0, 70));
+      check('参照先が読めているのに「取り出せた箇所はない」と言わない',
+        !emptyTxt.includes('取り出せた箇所はありません'), emptyTxt.slice(0, 70));
+    } else {
+      check('SQL が本当に無いときはそう言う',
+        emptyTxt.includes('取り出せた箇所はありません'), emptyTxt.slice(0, 70));
+    }
+  } else {
+    check('SQL オブジェクトが並ぶ（空の説明を出さない）',
+      (await page.getByTestId('sql-empty').count()) === 0, `SQL オブジェクト ${sqlObjN} 件`);
+  }
   await shot('A11-datamodel-sql.png');
 
   console.log('\n[13] 関連探索（起点を選ぶと図と表が出る）');

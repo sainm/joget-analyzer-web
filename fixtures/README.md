@@ -9,6 +9,7 @@
 |---|---|---|
 | `enhanced-json-api-main/` | Joget マーケットプレイスプラグイン `org.joget.marketplace:enhanced-json-api` のソース（`pom.xml` + `src/main/java` + `properties/*.json` + `messages/*.properties`）と、同梱のサンプルアプリ `.jwa` | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `form-data-archive-tool/APP_FormDataArchiveToolSampleApp-7-20260116134435.jwa` | [jogetoss/form-data-archive-tool](https://github.com/jogetoss/form-data-archive-tool) の同梱サンプルアプリ。4 つのフォームが `section1` / `section2` という同じ項目ID を使い回す | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
+| `jwt-sso-webservice/APP_jwtsso-1-20260604152808.jwa` | [jogetoss/jwt-sso-webservice](https://github.com/jogetoss/jwt-sso-webservice) の同梱サンプルアプリ。1 つのフォームの中に同じ項目ID（`public_key`）が 2 回定義されている。XPDL・SQL 副作用あり、`data/*.json` なし | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `rfq/APP_RFQ-1-20260131145603.jwa` | 業務アプリ「RFQ Management」のエクスポートパッケージ。多テーブル・承認プロセス・SQL 副作用を含む重い検証用 | 顧客資産。**`.gitignore` でコミット対象外**。手元にのみ配置 |
 
 ## 使い方
@@ -18,6 +19,7 @@
 ```
 fixtures/enhanced-json-api-main        # プラグインソース + アプリ → 突合まで通しで動く
 fixtures/form-data-archive-tool        # .jwa 単体（突合なしの経路）
+fixtures/jwt-sso-webservice            # .jwa 単体 + XPDL + SQL 副作用
 fixtures/rfq                           # アプリ単体（手元に .jwa を置いた場合）
 ```
 
@@ -53,6 +55,21 @@ unzip -p fixtures/enhanced-json-api-main/APP_EnhancedJSONAPISampleApp-1-20241101
 （詳細を開けない・関連が片側になる）。`test-object-model.mjs` の
 「オブジェクトの key が一意」「byKey から全オブジェクトを引ける」と、`test-ui.mjs` の
 「一覧の行数が件数表示と一致する（二重描画が無い）」がこの素材で初めて効きます。
+
+`jwt-sso-webservice` を指定した場合（XPDL と SQL 副作用あり、`data/*.json` なし）：
+
+- オブジェクト **132** 件（テーブル **3** / カラム **38** / フォーム **4** / フォーム項目 **34** / データリスト **2** /
+  メニュー **6** / プロセス **1** / ノード **6** / SQL **1** / プラグイン **37**）
+- 未確認 **66** 件（定義欠落 **3** / 規約導出 **26** / ソース未提供 **37**）
+- SQL は **1** 件（`UPDATE app_fd_jwtsso_signup SET c_password=… WHERE c_username=…`）で、列まで読み取り済み。
+  データモデル外のテーブルを参照する SQL は 0 件
+
+**この素材を外せない理由**：フォーム `client` の中に項目ID `public_key` が 2 回定義されています。
+「フォームID + 項目ID」を鍵にしても、フォームの中で ID が一意とは限りません。
+2 つを区別する情報は定義側に無いため、モデルは 1 つにまとめ、まとめた事実を
+静的チェック（STRUCT）の注記として残します。`test-object-model.mjs` の
+「オブジェクトの key が一意」が、`form-data-archive-tool`（フォームをまたぐ同名）とは
+別の形の衝突として、この素材で初めて効きます。
 
 `rfq` を指定した場合（手元に .jwa があるとき）：
 

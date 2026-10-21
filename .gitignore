@@ -31,6 +31,9 @@ fixtures/enhanced-json-api-main/*.md
 # 複数のフォームが同じ項目ID（section1 / section2）を使い回す素材。
 # 項目の同一性を ID だけで決めると衝突するため、回帰用に固定している。
 !fixtures/form-data-archive-tool/APP_FormDataArchiveToolSampleApp-7-20260116134435.jwa
+# 同じフォームの中で項目IDが重複する素材。上の「フォームを前置する」だけでは
+# 足りないこと（フォーム内でも一意でない）を捕まえる唯一の回帰点。
+!fixtures/jwt-sso-webservice/APP_jwtsso-1-20260604152808.jwa
 
 # ── システム・エディタ ──────────────────────────────────────────
 .DS_Store

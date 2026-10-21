@@ -119,6 +119,56 @@ ok('オブジェクトの key が一意（重複すると詳細を開けない�
 ok('byKey から全オブジェクトを引ける', m.byKey.size === m.objects.length,
   `byKey ${m.byKey.size} / objects ${m.objects.length}`);
 
+/* SQL は「ある / ない」の二値では語れない。列まで読めた SQL と、参照先
+ * テーブルだけ分かった SQL が混在する。画面が「SQL はありません」と
+ * 言ってしまう事故を防ぐため、到達範囲を数で持つ。
+ * 期待値は summary の生データから数え直す（モデルの写しを突き合わせない）。 */
+const sc = m.sqlCoverage;
+const rawEffects = summary.sql_effects || [];
+const rawKindSql = rawEffects.filter((e) => (e.kind || 'sql') === 'sql').length;
+const rawExt = summary.sql_tables || {};
+const rawExtN = Object.values(rawExt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
+ok('SQL の到達範囲: 件数が生データと一致する', sc.effects === rawEffects.length,
+  `モデル ${sc.effects} / 生データ ${rawEffects.length}`);
+ok('SQL の到達範囲: 列まで検査する件数が kind=sql の件数と一致する',
+  sc.columnChecked === rawKindSql, `モデル ${sc.columnChecked} / 生データ ${rawKindSql}`);
+ok('SQL の到達範囲: データモデル外の参照が生データの再計数と一致する',
+  sc.externalStatements === rawExtN &&
+    JSON.stringify(sc.externalTables) === JSON.stringify(Object.keys(rawExt).sort()),
+  `モデル ${sc.externalStatements} 件 ${JSON.stringify(sc.externalTables)} / 生データ ${rawExtN} 件`);
+ok('SQL オブジェクトの数が読み取れた SQL の数と一致する',
+  m.objects.filter((o) => o.type === OBJ.SQL).length === sc.effects,
+  `オブジェクト ${m.objects.filter((o) => o.type === OBJ.SQL).length} / 読み取り ${sc.effects}`);
+/* ルールの説明が実装より広くならないこと。列を突き合わせるのは UPDATE 文だけで、
+ * フォーム内の SQL は参照先テーブルまでしか読んでいない。 */
+const sqlRule = m.checkRules.find((r) => r.ruleId === 'SQL-FIELD');
+ok('SQL-FIELD の検査範囲が実際の対象（UPDATE 文）を述べている',
+  /UPDATE/.test(sqlRule.scope), sqlRule.scope);
+ok('SQL-FIELD の制限が「列は検査していない」範囲を明示している',
+  /列は検査していません/.test(sqlRule.limit), sqlRule.limit);
+
+/* 同じフォームの中で項目IDが重複している場合、モデルは 1 つにまとめる。
+ * まとめた事実を黙って捨てないこと——定義側の誤りは利用者に伝えるべき情報で、
+ * 静かな重複排除は「件数が合わない」だけの不可解な画面を生む。
+ * 期待値は生データ（app.forms の fields）から数え直す。 */
+const dupFieldIds = [];
+for (const f of summary.app?.forms || []) {
+  const seen = new Map();
+  for (const fl of f.fields || []) seen.set(fl.id, (seen.get(fl.id) || 0) + 1);
+  for (const [fid, n] of seen) if (n > 1) dupFieldIds.push({ form: f.id, field: fid, n });
+}
+if (dupFieldIds.length) {
+  const missing = dupFieldIds.filter((x) => !m.checks.some(
+    (c) => c.text.includes(x.field) && /同じフォーム内で \d+ 回定義/.test(c.text)));
+  ok('同じフォーム内で重複した項目IDが注記される', missing.length === 0,
+    `${missing.length} 件が注記なし ${JSON.stringify(missing.slice(0, 3))}`);
+  ok('重複した項目IDのオブジェクトは 1 つにまとまる',
+    dupFieldIds.every((x) => m.objects.filter((o) => o.type === OBJ.FIELD && o.id === x.field && o.key.startsWith(`field:${x.form}.`)).length === 1),
+    JSON.stringify(dupFieldIds.slice(0, 3)));
+} else {
+  console.log('  （同一フォーム内の重複項目なし。注記の門はこの素材では対象外）');
+}
+
 console.log('\n[2] 関連の整合性（回帰: 生成順で関連を失わない）');
 let broken = 0;
 let asym = 0;
@@ -462,9 +512,19 @@ ok('tableModel が無い解析結果では data のテーブルが解決する',
   legacyTables.length === dataTableKeys.length
     && dataTableKeys.every((k) => legacyTables.includes(k)),
   `data ${dataTableKeys.length} / 解決 ${legacyTables.length}`);
+/* ただし「確認できていないものを解決済みにしない」ので、data/*.json を
+ * 持たない素材（エクスポート時にデータを含めていない）では、tableModel を
+ * 落とすとテーブルを導出する材料がゼロになる。そのとき SQL の参照先が
+ * 未解決になるのは正しい挙動であり、門を赤にしてはいけない。
+ * 対象は「data にあるテーブルを指す SQL」に限る。 */
+const legacyDataTables = new Set(dataTableKeys);
+const sqlLinkUnresolved = mLegacy.unresolved.filter(
+  (u) => u.kind === 'link' && String(u.from || '').startsWith('sql:')
+    && legacyDataTables.has(String(u.to || '').replace(/^table:/, '')),
+);
 ok('tableModel が無い解析結果でも data のテーブルを指す SQL 関連は解決する',
-  mLegacy.unresolved.filter((u) => u.kind === 'link' && String(u.from || '').startsWith('sql:')).length === 0,
-  `${mLegacy.unresolved.filter((u) => u.kind === 'link' && String(u.from || '').startsWith('sql:')).length} 件が未解決`);
+  sqlLinkUnresolved.length === 0,
+  `${sqlLinkUnresolved.length} 件が未解決（判定対象の data テーブル ${legacyDataTables.size} 件 / 未解決全体 ${mLegacy.unresolved.length} 件）`);
 ok('fallback はフォーム→テーブルの未解決を悪化させない',
   mLegacy.unresolved.filter((u) => u.kind === 'link' && u.type === 'table').length
     <= buildObjectModel({ summary: { ...summary, tableModel: {} }, correlation }).unresolved
@@ -569,13 +629,18 @@ ok('app_summary.json の impact の問題検出がモデルのビューと一致
 /* 6.1・6.2 の表。1 行目は見出しなので除く。 */
 const docWriteRows = (sectionRows(sections.writeSources) || []).slice(1);
 const docReadRows = (sectionRows(sections.readSources) || []).slice(1);
+/* 表のセルと文字列を比べるときは前後の空白を落とす。Markdown の表は
+ * セルの前後空白を保てないため、モデル側が `slice()` で切った文字列の
+ * 末尾に空白が残っていると、内容が同じでも不一致になる（jwt-sso で実際に
+ * 60 文字の境界が空白に当たり、6.1 が「5 行 / 5 行」で赤になった）。 */
+const cellTrim = (s) => cellOf(s).trim();
 const viewWriteRows = [];
 for (const [tid, entries] of Object.entries(m.impact.writeMap)) {
-  for (const e of entries) viewWriteRows.push([cellOf(tid), cellOf(e.source), cellOf(e.fields)]);
+  for (const e of entries) viewWriteRows.push([cellTrim(tid), cellTrim(e.source), cellTrim(e.fields)]);
 }
 const viewReadRows = [];
 for (const [tid, entries] of Object.entries(m.impact.readMap)) {
-  for (const e of entries) viewReadRows.push([cellOf(tid), cellOf(e.source), cellOf(e.binder)]);
+  for (const e of entries) viewReadRows.push([cellTrim(tid), cellTrim(e.source), cellTrim(e.binder)]);
 }
 ok('6.1 の行がモデルのビューと一致する',
   JSON.stringify(docWriteRows) === JSON.stringify(viewWriteRows),
@@ -600,12 +665,15 @@ ok('6.x のテーブル名が 5.1 と同じ物理名になっている',
  * オブジェクト順で違い得るので、集合として比べる。 */
 const rawPrefix = (tk) => (String(tk).startsWith('app_fd_') ? String(tk) : `app_fd_${tk}`);
 const rawLogical = (c) => (String(c).startsWith('c_') ? String(c).slice(2) : String(c));
+/* 生データ側も viewWriteRows と同じ正規化（セル用のエスケープ＋前後空白の
+ * 除去）を通す。片側だけ `slice()` の切れ目に残る空白を持っていると、
+ * 内容が同じでも不一致になる。 */
 const rawFormWrites = (summary.app.forms || [])
   .filter((f) => f.tableName)
-  .map((f) => [rawPrefix(f.tableName), `フォーム ${f.name}(${f.id})`, '*']);
+  .map((f) => [cellTrim(rawPrefix(f.tableName)), cellTrim(`フォーム ${f.name}(${f.id})`), '*']);
 const rawSqlWrites = (summary.sql_effects || [])
   .filter((e) => e.table)
-  .flatMap((e) => (e.sets || []).map((s) => [rawPrefix(e.table), `プロセスSQL ${String(e.sql).slice(0, 60)}`, `${rawLogical(s.column)} = '${s.value}'`]));
+  .flatMap((e) => (e.sets || []).map((s) => [cellTrim(rawPrefix(e.table)), cellTrim(`プロセスSQL ${String(e.sql).slice(0, 60)}`), cellTrim(`${rawLogical(s.column)} = '${s.value}'`)]));
 const rawFormById = Object.fromEntries((summary.app.forms || []).map((f) => [f.id, f]));
 const rawListReads = (summary.app.datalists || []).flatMap((d) => {
   let tk = '';
@@ -614,7 +682,7 @@ const rawListReads = (summary.app.datalists || []).flatMap((d) => {
     const qm = String(d.query || '').match(/(?:FROM|JOIN)\s+app_fd_(\w+)/i);
     if (qm) tk = qm[1];
   }
-  return tk ? [[rawPrefix(tk), `リスト ${d.name}(${d.id})`, d.binder || '']] : [];
+  return tk ? [[cellTrim(rawPrefix(tk)), cellTrim(`リスト ${d.name}(${d.id})`), cellTrim(d.binder || '')]] : [];
 });
 const sortedJson = (rows) => JSON.stringify(rows.map((r) => JSON.stringify(r)).sort());
 ok('モデルのビューの書込元がアプリ定義の生データと一致する',
