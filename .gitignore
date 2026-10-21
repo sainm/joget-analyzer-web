@@ -34,6 +34,9 @@ fixtures/enhanced-json-api-main/*.md
 # 同じフォームの中で項目IDが重複する素材。上の「フォームを前置する」だけでは
 # 足りないこと（フォーム内でも一意でない）を捕まえる唯一の回帰点。
 !fixtures/jwt-sso-webservice/APP_jwtsso-1-20260604152808.jwa
+# フォームもデータも持たない素材。設計書の「空の節・表頭だけの表」を
+# 出さない門と、0 件が正しい場面で 0 件であることを確かめる門の回帰点。
+!fixtures/dynamic-list-report-element/APP_DynamicListReportElementSampleApp-1-20250519155309.jwa
 
 # ── システム・エディタ ──────────────────────────────────────────
 .DS_Store

@@ -101,8 +101,18 @@ const m = buildObjectModel({ summary, correlation });
 console.log('\n[1] オブジェクト種別');
 const types = Object.entries(m.stats.byType).map(([k2, v]) => `${k2}=${v}`).join(' ');
 console.log(`  ${types} / 合計 ${m.stats.total}`);
-ok('フォームが生成される', (m.stats.byType[OBJ.FORM] || 0) > 0);
-ok('テーブルが生成される', (m.stats.byType[OBJ.TABLE] || 0) > 0);
+/* 「フォームがある」「テーブルがある」を前提にした固定の断言にしない。
+ * メニューとプラグインだけのサンプルアプリ（dynamic-list-report-element）は
+ * 実在し、そのとき 0 件が正しい。0 を許す代わりに、0 件でなければならない
+ * 場面では 0 件であることも確かめる（無条件に緩めない）。 */
+const rawFormN = (summary.app?.forms || []).length;
+ok('フォームの数がアプリ定義と一致する', (m.stats.byType[OBJ.FORM] || 0) === rawFormN,
+  `モデル ${m.stats.byType[OBJ.FORM] || 0} / 生データ ${rawFormN}`);
+const hasTableSource = Object.keys(summary.tableModel || {}).length > 0
+  || Object.keys(summary.data || {}).length > 0;
+ok(hasTableSource ? 'テーブルが生成される' : 'テーブルの材料が無いアプリではテーブルを生成しない',
+  hasTableSource ? (m.stats.byType[OBJ.TABLE] || 0) > 0 : (m.stats.byType[OBJ.TABLE] || 0) === 0,
+  `テーブル ${m.stats.byType[OBJ.TABLE] || 0} / tableModel ${Object.keys(summary.tableModel || {}).length} / data ${Object.keys(summary.data || {}).length}`);
 ok('メニューまたはリストが生成される', (m.stats.byType[OBJ.MENU] || 0) + (m.stats.byType[OBJ.LIST] || 0) > 0);
 
 /* 一覧・詳細・関連はすべて key を同一性の根拠にしている。key が重複すると
@@ -219,7 +229,12 @@ const tbl = m.objects.find((o) => o.type === OBJ.TABLE);
 const cols = m.objects.filter((o) => o.type === OBJ.COLUMN);
 const formColLinks = cols.filter((c) => c.links.some((l) => l.type === 'field')).length;
 console.log(`  テーブル ${m.stats.byType[OBJ.TABLE] || 0} / カラム ${cols.length} / カラム→項目リンク ${formColLinks}`);
-ok('カラム→フォーム項目の関連が解決している', cols.length > 0 && formColLinks > 0);
+/* カラムが 1 つも無いアプリ（フォームもデータも無い）では、リンクも 0 件が正しい。
+ * 「カラムがあるならリンクが解決している」ことを見る（0 件側はここでは要求しない
+ * ——カラムの有無は上のテーブルの門で既に確かめている）。 */
+ok('カラム→フォーム項目の関連が解決している',
+  cols.length === 0 || formColLinks > 0,
+  `カラム ${cols.length} / リンク ${formColLinks}`);
 
 /* プラグインは「参照されているのに詳細も検索も出てこない」状態にしてはいけない。
  * プラットフォーム標準（apps / enterprise）は突合できないため platform 側に
@@ -394,6 +409,36 @@ const chapters = splitChapters(md);
 const byChapter = matchObjectsByChapter(chapters, m.objects);
 
 ok('設計書から章を取り出せる', chapters.length > 0, `${chapters.length} 章`);
+
+/* 設計書は納品物として読まれる。見出しだけ、表頭だけの節が残ると、読み手は
+ * 「対象が無い」のか「解析に失敗した」のか判断できない。空の理由は節の中に
+ * 書く（節を消すと章番号が飛ぶ）。ここでは生成物そのものの構造だけを見る。
+ *   - 見出し直下が空（## は子節の内容も数える）
+ *   - 表頭と区切り行だけでデータ行が無い表
+ * 実素材 42 本では、修正前に「4. プロセス設計」が 30 本、
+ * 「関係（外部キー）」の表が 41 本で空だった。 */
+const docLines = md.split('\n');
+const docHeads = [];
+docLines.forEach((l, i) => { if (/^(#{2,3}) /.test(l)) docHeads.push({ i, level: l.match(/^(#{2,3}) /)[1].length, title: l }); });
+const emptySections = [];
+for (let k = 0; k < docHeads.length; k++) {
+  const h = docHeads[k];
+  let end = docLines.length;
+  for (let mm2 = k + 1; mm2 < docHeads.length; mm2++) {
+    if (h.level === 2 ? docHeads[mm2].level === 2 : true) { end = docHeads[mm2].i; break; }
+  }
+  const body = docLines.slice(h.i + 1, end).filter((x) => x.trim() && !/^#{2,3} /.test(x));
+  if (!body.length) emptySections.push(h.title);
+}
+ok('設計書に空の節が無い（理由か内容のどちらかが必ずある）',
+  emptySections.length === 0, JSON.stringify(emptySections.slice(0, 4)));
+
+const emptyTables = [];
+for (let i = 1; i < docLines.length - 1; i++) {
+  if (!/^\|[\s|:-]+\|$/.test(docLines[i].trim())) continue;
+  if (!docLines[i + 1].trim().startsWith('|')) emptyTables.push(docLines[i - 1].slice(0, 60));
+}
+ok('設計書に表頭だけの表が無い', emptyTables.length === 0, JSON.stringify(emptyTables.slice(0, 4)));
 
 /* アンカーを持つオブジェクトは、どれか 1 章に紐づく必要がある。
  * 紐づかない場合、詳細画面の「このオブジェクトを設計書で見る」が無言で壊れる。 */
@@ -724,11 +769,15 @@ const columnSections = m.objects
   .filter((o) => o.type === OBJ.TABLE)
   .map((o) => o.sections.find((s) => s.title === 'カラム一覧'))
   .filter(Boolean);
+/* テーブルが 1 つも無いアプリではカラム一覧の節も 0 件になる。0 件を許す代わりに、
+ * テーブルがあるのに節が無い場合は必ず落とす（無条件に緩めない）。 */
+const tableObjs = m.objects.filter((o) => o.type === OBJ.TABLE);
 ok('カラム一覧に出処バッジの指定がある',
-  columnSections.length > 0
-    && columnSections.every((s) => s.badge?.kind === 'basis'
-      && s.head[s.badge.column] === '導出根拠'),
-  `節 ${columnSections.length} 件`);
+  (tableObjs.length === 0 && columnSections.length === 0)
+    || (columnSections.length === tableObjs.length
+      && columnSections.every((s) => s.badge?.kind === 'basis'
+        && s.head[s.badge.column] === '導出根拠')),
+  `テーブル ${tableObjs.length} / 節 ${columnSections.length} 件`);
 const unresolvableBasis = columnSections.flatMap((s) => (s.rows || []).map((r) => r[s.badge.column]))
   .filter((v) => !basisKeys.some((k) => BASIS_LABEL[k] === v));
 ok('カラム一覧の出処が語彙から逆引きできる',

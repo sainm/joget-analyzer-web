@@ -253,13 +253,24 @@ try {
    * 含まれるため、「フォーム定義」が正文に出ていても退化を検出できない。
    * バッジ要素（title に正式な説明を持つ）の文字を直接比べる。 */
   const dmTxt = await page.locator('main').innerText();
-  check('出処の凡例が出る', dmTxt.includes('出処：'));
+  /* カラムが 1 つも無いアプリ（フォームもデータも無い）では、そもそも
+   * バッジを出す対象が無い。期待値はモデルのカラム一覧節の有無から取る。 */
+  const colSectionN = expectedModel.objects
+    .filter((o) => o.type === OBJ.TABLE)
+    .map((o) => o.sections.find((x) => x.title === 'カラム一覧'))
+    .filter(Boolean).length;
   const basisBadge = page.locator('main [title*="命名規約で生成"]').first();
-  check('出処がバッジとして存在する', (await basisBadge.count()) > 0);
-  check('バッジの文字が短いラベルになっている',
-    (await basisBadge.count()) > 0 && (await basisBadge.innerText()).trim() === 'フォーム定義');
-  check('バッジに正式な説明が title で付いている',
-    (await basisBadge.count()) > 0 && (await basisBadge.getAttribute('title')).includes('命名規約で生成'));
+  if (colSectionN > 0) {
+    check('出処の凡例が出る', dmTxt.includes('出処：'));
+    check('出処がバッジとして存在する', (await basisBadge.count()) > 0);
+    check('バッジの文字が短いラベルになっている',
+      (await basisBadge.count()) > 0 && (await basisBadge.innerText()).trim() === 'フォーム定義');
+    check('バッジに正式な説明が title で付いている',
+      (await basisBadge.count()) > 0 && (await basisBadge.getAttribute('title')).includes('命名規約で生成'));
+  } else {
+    check('カラムが無いときは出処バッジを出さない', (await basisBadge.count()) === 0);
+    check('カラムが無い理由が画面に出る', /テーブルを導出できませんでした/.test(dmTxt));
+  }
   await shot('A6b-datamodel-basis.png');
 
   console.log('\n[8c] 解析品質の成因（なぜ確認できなかったか）');
@@ -386,7 +397,7 @@ try {
     check('プロセスが無いときに空の図を描かない', (await page.locator('.mermaid-host svg').count()) === 0);
   } else {
     const prSvg = await page.locator('.mermaid-host svg').count();
-    const prErr = await page.locator('.bg-rose-50').count();
+    const prErr = await page.getByTestId('mermaid-error').count();
     check('フロー図の SVG が描画されている', prSvg >= 1);
     check('図のエラー枠がない', prErr === 0);
     // 「見つかりません」は flowChart の空プレースホルダ。summary と summary.xpdl を
@@ -457,7 +468,9 @@ try {
   await sel.selectOption({ index: 1 });
   await page.waitForTimeout(2600);
   const relSvg = await page.locator('.mermaid-host svg').count();
-  const relErr = await page.locator('.bg-rose-50').count();
+  /* 色（bg-rose-50）で探すと、プラグイン種別のバッジも同じ色なので
+   * 図が正しく描けていても「エラー枠あり」になる（実素材で発生）。 */
+  const relErr = await page.getByTestId('mermaid-error').count();
   check('関係図の SVG が描画されている', relSvg >= 1);
   check('図のエラー枠がない', relErr === 0);
   const relSvgText = await svgText();
@@ -616,11 +629,18 @@ try {
   await shot('A15-doc-chunks.png');
 
   console.log('\n[16] グローバル検索（ツールバー）');
-  await page.getByTestId('global-search').fill('form');
+  /* 検索語を固定の英語にしない。'form' はフォームを持たないアプリでは
+   * 0 件になり、検索そのものが壊れていなくても落ちる。モデルの先頭
+   * オブジェクトの ID を使い、必ず 1 件以上当たる語にする。 */
+  const probe = expectedModel.objects.find((o) => String(o.id || '').replace(/\s/g, '').length >= 4)
+    || expectedModel.objects[0];
+  const needle = String(probe.id).replace(/\s/g, '').slice(0, 6);
+  await page.getByTestId('global-search').fill(needle);
   await page.waitForTimeout(900);
   const gs = await page.getByTestId('global-search-results').innerText();
-  check('検索結果件数が出る', /該当/.test(gs));
-  check('検索結果から対象を選べる', (await page.getByTestId('global-search-results').locator('button').count()) > 0);
+  check('検索結果件数が出る', /該当/.test(gs), `検索語 ${needle}`);
+  check('検索結果から対象を選べる',
+    (await page.getByTestId('global-search-results').locator('button').count()) > 0, `検索語 ${needle}`);
   await page.getByTestId('global-search').fill('');
   await page.waitForTimeout(400);
   await shot('A16-global-search.png');

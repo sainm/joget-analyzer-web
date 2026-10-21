@@ -53,7 +53,11 @@ export default function Mermaid({ code, className = '' }) {
     <div className={className}>
       <div className="mermaid-host flex justify-center overflow-auto py-2" ref={ref} />
       {err && (
-        <pre className="mt-2 overflow-auto rounded-lg bg-rose-50 p-3 text-[11px] text-rose-600">{err}</pre>
+        /* 図の失敗だけを指せるようにする。色（bg-rose-50）で探すと、
+         * プラグイン種別や解析失敗のバッジも同じ色なので誤検出する
+         * （実際に、プラグインのノードがある画面で「図のエラー」と
+         *  誤判定していた）。 */
+        <pre data-testid="mermaid-error" className="mt-2 overflow-auto rounded-lg bg-rose-50 p-3 text-[11px] text-rose-600">{err}</pre>
       )}
     </div>
   );

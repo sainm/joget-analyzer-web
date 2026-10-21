@@ -10,6 +10,7 @@
 | `enhanced-json-api-main/` | Joget マーケットプレイスプラグイン `org.joget.marketplace:enhanced-json-api` のソース（`pom.xml` + `src/main/java` + `properties/*.json` + `messages/*.properties`）と、同梱のサンプルアプリ `.jwa` | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `form-data-archive-tool/APP_FormDataArchiveToolSampleApp-7-20260116134435.jwa` | [jogetoss/form-data-archive-tool](https://github.com/jogetoss/form-data-archive-tool) の同梱サンプルアプリ。4 つのフォームが `section1` / `section2` という同じ項目ID を使い回す | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `jwt-sso-webservice/APP_jwtsso-1-20260604152808.jwa` | [jogetoss/jwt-sso-webservice](https://github.com/jogetoss/jwt-sso-webservice) の同梱サンプルアプリ。1 つのフォームの中に同じ項目ID（`public_key`）が 2 回定義されている。XPDL・SQL 副作用あり、`data/*.json` なし | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
+| `dynamic-list-report-element/APP_DynamicListReportElementSampleApp-1-20250519155309.jwa` | [jogetoss/dynamic-list-report-element](https://github.com/jogetoss/dynamic-list-report-element) の同梱サンプルアプリ。**フォームもデータも持たない**（メニュー・データリスト・プラグインのみ） | **Apache License 2.0**（`LICENSE` を同梱）。コミット対象 |
 | `rfq/APP_RFQ-1-20260131145603.jwa` | 業務アプリ「RFQ Management」のエクスポートパッケージ。多テーブル・承認プロセス・SQL 副作用を含む重い検証用 | 顧客資産。**`.gitignore` でコミット対象外**。手元にのみ配置 |
 
 ## 使い方
@@ -20,6 +21,7 @@
 fixtures/enhanced-json-api-main        # プラグインソース + アプリ → 突合まで通しで動く
 fixtures/form-data-archive-tool        # .jwa 単体（突合なしの経路）
 fixtures/jwt-sso-webservice            # .jwa 単体 + XPDL + SQL 副作用
+fixtures/dynamic-list-report-element   # フォームもデータも無いアプリ
 fixtures/rfq                           # アプリ単体（手元に .jwa を置いた場合）
 ```
 
@@ -70,6 +72,19 @@ unzip -p fixtures/enhanced-json-api-main/APP_EnhancedJSONAPISampleApp-1-20241101
 静的チェック（STRUCT）の注記として残します。`test-object-model.mjs` の
 「オブジェクトの key が一意」が、`form-data-archive-tool`（フォームをまたぐ同名）とは
 別の形の衝突として、この素材で初めて効きます。
+
+`dynamic-list-report-element` を指定した場合（フォームもデータも無いアプリ）：
+
+- オブジェクト **13** 件（データリスト **2** / メニュー **3** / プラグイン **8**）。テーブル・フォーム・カラムは 0 件
+- 未確認 **11** 件（定義欠落 **3** / ソース未提供 **8**）
+- 設計書 3 章・5.1・6.1・6.2 は「対象が無い理由」を書いたうえで空になる
+
+**この素材を外せない理由**：0 件が正しい場面で 0 件であることと、
+**設計書に空の節・表頭だけの表を残さない**ことを確かめる回帰点です。
+実素材 42 本を回したところ、修正前は「4. プロセス設計」が 30 本、
+「関係（外部キー）」の表が 41 本で空でした。`test-object-model.mjs` の
+「設計書に空の節が無い」「設計書に表頭だけの表が無い」と、
+「フォームの数がアプリ定義と一致する」が、この素材で初めて効きます。
 
 `rfq` を指定した場合（手元に .jwa があるとき）：
 
