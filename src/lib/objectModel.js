@@ -30,3 +30,6 @@ export const BASIS_LEGEND = model.BASIS_LEGEND;
 export const CAUSE_LABEL = model.CAUSE_LABEL;
 export const CAUSE_DESC = model.CAUSE_DESC;
 export const CAUSE_ORDER = model.CAUSE_ORDER;
+/** 静的検査のルールカタログ（ルール名・検査範囲・解析上の限界）と並び順 */
+export const CHECK_RULES = model.CHECK_RULES;
+export const CHECK_RULE_ORDER = model.CHECK_RULE_ORDER;

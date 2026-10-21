@@ -12,15 +12,23 @@ import { levelLabel, levelTone } from './ObjectExplorer.jsx';
  * 解析不十分と実障害を混同させない。
  *
  * 各結果には必ず「ルール ID / 検査対象 / 根拠 / 範囲 / 制限」を書く。
+ *
+ * ルールごとのサマリは「何を調べたか」を結果より先に示す。0 件のルールも
+ * 「調べたが何も出なかった」事実として出す。一方、ソース未提供などで
+ * 計測そのものができないルールは 0 件にせず「未計測」と書き、
+ * 絞り込みの対象にもしない（計っていないものを選んで「何も出なかった」
+ * と見せることは、0 と未計測の混同になる）。
  */
 export default function CheckCenter({ model, onSelectObject }) {
   const [level, setLevel] = useState('all');
+  const [ruleId, setRuleId] = useState('all');
   const [q, setQ] = useState('');
 
   const rows = useMemo(() => {
     const n = q.trim().toLowerCase();
     return model.checks
       .filter((c) => (level === 'all' ? true : c.level === level))
+      .filter((c) => (ruleId === 'all' ? true : c.ruleId === ruleId))
       .filter((c) => {
         if (!n) return true;
         return (
@@ -30,7 +38,7 @@ export default function CheckCenter({ model, onSelectObject }) {
           (c.object?.name || '').toLowerCase().includes(n)
         );
       });
-  }, [model, level, q]);
+  }, [model, level, ruleId, q]);
 
   const counts = {
     all: model.checks.length,
@@ -39,18 +47,58 @@ export default function CheckCenter({ model, onSelectObject }) {
     info: model.stats.checks.info,
   };
 
-  const byRule = useMemo(() => {
-    const c = {};
-    for (const x of model.checks) c[x.ruleId] = (c[x.ruleId] || 0) + 1;
-    return c;
-  }, [model]);
-
   return (
     <>
       <PageHead
         title={t('nav.checks')}
         lead="根拠が取れる範囲の静的検査結果です。解析の不十分さ・関連の見落としと、実運用の障害は区別して扱います。"
       />
+
+      {/* ルールごとのサマリは結果の有無に関わらず常に出す。
+        * 0 件は「調べたが何も出なかった」事実、未計測は「調べられなかった」
+        * 事実として区別して示す。結果が空のときこそ「何を調べたか」が
+        * 消えては、健全に見えないものが健全に見える。 */}
+      <div className="mb-3 rounded-lg border border-ink-200 bg-white" data-testid="check-rule-rows">
+        <header className="border-b border-ink-100 px-3.5 py-2">
+          <h2 className="text-[12px] font-semibold text-ink-700">適用中のルール</h2>
+          <p className="mt-0.5 text-[11px] text-ink-400">何を調べたかと、その結果です。行を選ぶと一覧を絞り込めます。</p>
+        </header>
+        <ul className="divide-y divide-ink-100">
+          {model.checkRules.map((r) => (
+            <li key={r.ruleId}>
+              {r.measured ? (
+                <button
+                  onClick={() => setRuleId(ruleId === r.ruleId ? 'all' : r.ruleId)}
+                  aria-pressed={ruleId === r.ruleId}
+                  className={`flex w-full items-start gap-2.5 px-3.5 py-2 text-left transition ${
+                    ruleId === r.ruleId ? 'bg-brand-50' : 'hover:bg-ink-50'
+                  }`}
+                >
+                  <span className="mt-0.5 shrink-0 rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[10px] text-ink-600">{r.ruleId}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium text-ink-800">{r.rule}</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-500">
+                      {t('ck.scope')}: {r.scope} · {t('ck.limit')}: {r.limit}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[12px] font-semibold tabular-nums text-ink-700">{r.count} 件</span>
+                </button>
+              ) : (
+                <div className="flex items-start gap-2.5 px-3.5 py-2" data-measured="false">
+                  <span className="mt-0.5 shrink-0 rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[10px] text-ink-600">{r.ruleId}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium text-ink-700">{r.rule}</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-500">
+                      {t('ck.scope')}: {r.scope} · {t('ck.limit')}: {r.limit}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded border border-ink-200 bg-ink-100 px-1.5 py-0.5 text-[10px] font-medium text-ink-500">未計測</span>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {model.checks.length === 0 ? (
         <EmptyNote>{t('ck.noneHint')}</EmptyNote>
@@ -78,19 +126,10 @@ export default function CheckCenter({ model, onSelectObject }) {
             />
           </div>
 
-          <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-ink-200 bg-ink-50 px-3 py-2 text-[11px] text-ink-500">
-            <span className="font-medium text-ink-600">適用中のルール:</span>
-            {Object.entries(byRule).map(([rid, n]) => (
-              <span key={rid} className="rounded bg-white px-1.5 py-0.5 font-mono text-ink-600">
-                {rid} <span className="tabular-nums">{n}</span>
-              </span>
-            ))}
-          </div>
-
           {rows.length === 0 ? (
             <EmptyNote>この条件に該当する検査結果はありません。</EmptyNote>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-2" data-testid="check-rows">
               {rows.map((c, i) => (
                 <li key={i} className="rounded-lg border border-ink-200 bg-white">
                   <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2">

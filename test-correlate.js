@@ -13,7 +13,24 @@ const fs = require('fs');
 const path = require('path');
 
 const PROJECT = process.env.JOGET_PROJECT || path.join(__dirname, 'fixtures', 'enhanced-json-api-main');
-const JWA = process.env.JOGET_TEST_JWA || path.join(PROJECT, 'APP_EnhancedJSONAPISampleApp-1-20241101165150.jwa');
+/* .jwa はプロジェクト直下（またはそのサブディレクトリ）から発見する。
+ * ファイル名を固定すると、JOGET_PROJECT を別素材に切り替えた瞬間に
+ * 「その素材しか検査できない」門禁になる（bee39a7 当時は rfq を
+ * 回すと enhanced のパスを探して ENOENT 落ちしていた）。 */
+const JWA = process.env.JOGET_TEST_JWA || (function findJwa(dir) {
+  const flat = fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith('.jwa'));
+  if (flat) return path.join(dir, flat);
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const nested = findJwa(path.join(dir, e.name));
+    if (nested) return nested;
+  }
+  return null;
+})(PROJECT);
+if (!JWA) {
+  console.log('スキップ（.jwa が見つかりません）:', PROJECT);
+  process.exit(0);
+}
 const OUT = './data/test3/out';
 
 const r = analyze(JWA, OUT);

@@ -25,7 +25,7 @@ import { splitChapters, matchObjectsByChapter } from './src/lib/designDocView.js
  * Vite 側は esbuild が ESM に変換して取り込む。
  */
 const require = createRequire(import.meta.url);
-const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey, BASIS_LABEL, BASIS_SHORT, BASIS_LEGEND, CAUSE_LABEL, CAUSE_DESC, CAUSE_ORDER } = require('./lib/objectModel.js');
+const { buildObjectModel, OBJ, STATUS, CATEGORY_LABEL, sections, dataTableKey, BASIS_LABEL, BASIS_SHORT, BASIS_LEGEND, CAUSE_LABEL, CAUSE_DESC, CAUSE_ORDER, CHECK_RULES, CHECK_RULE_ORDER } = require('./lib/objectModel.js');
 const { analyze } = require('./lib/analyze');
 const { correlate } = require('./lib/correlate');
 const { scanPluginSource } = require('./lib/pluginScan');
@@ -263,6 +263,41 @@ ok('各検査に根拠がある', m.checks.every((c) => !!c.evidence));
 ok('各検査に解析上の制限がある', m.checks.every((c) => !!c.limit));
 ok('各検査に検査範囲がある', m.checks.every((c) => !!c.scope));
 ok('解決できなかった関連が報告される', Array.isArray(m.unresolved));
+
+/* ルールカタログとサマリ。
+ * 「何を調べたか」は結果より先に分かる必要がある。0 件のルールも
+ * 「調べたが何も出なかった」事実として出すので、カタログの全規則が
+ * サマリに出ることを見る。突き合わせはカタログ（語彙の定義元）と
+ * 結果（出力）の間で行う——両方ともモデル側だが、片方を書き換えると
+ * 必ず片方だけが変わるので、揺らぎは検出できる。 */
+const catalogIds = Object.keys(CHECK_RULES);
+ok('カタログに無いルール ID の結果が出ていない',
+  m.checks.every((c) => Object.prototype.hasOwnProperty.call(CHECK_RULES, c.ruleId)),
+  m.checks.filter((c) => !CHECK_RULES[c.ruleId]).map((c) => c.ruleId).slice(0, 3).join(', '));
+ok('カタログと順序表が同じ規則を列挙している',
+  catalogIds.length === CHECK_RULE_ORDER.length && catalogIds.every((id) => CHECK_RULE_ORDER.includes(id)),
+  `カタログ ${catalogIds.length} / 順序 ${CHECK_RULE_ORDER.length}`);
+ok('カタログの全規則がサマリに出る',
+  m.checkRules.length === CHECK_RULE_ORDER.length
+    && m.checkRules.every((r, i) => r.ruleId === CHECK_RULE_ORDER[i] && r.rule && r.scope && r.limit),
+  `サマリ ${m.checkRules.length} / カタログ ${catalogIds.length}`);
+ok('サマリの件数が結果の集計と一致する',
+  m.checkRules.every((r) => r.count === m.checks.filter((c) => c.ruleId === r.ruleId).length)
+    && m.checkRules.reduce((s, r) => s + r.count, 0) === m.checks.length,
+  `サマリ計 ${m.checkRules.reduce((s, r) => s + r.count, 0)} / 結果 ${m.checks.length}`);
+/* 未計測の判定。CFG-DECL はプラグインソースの走査結果が要るので、
+ * ソース未提供のプロジェクトでは 0 件ではなく未計測——「プラグイン設定は
+ * 全て健全」と誤読させてはいけない。REF-CLASS はソースが無くても
+ * アプリ定義の参照文字列から出るので計測扱い。期待値は correlation の
+ * 事実（hasSource の有無）から独立に立てる。 */
+const expectedMeasured = (rid) => (rid === 'CFG-DECL' ? !!correlation?.hasSource : rid === 'REF-CLASS' ? !!correlation : true);
+ok('未計測の判定が突合の有無と一致する',
+  m.checkRules.every((r) => r.measured === expectedMeasured(r.ruleId)),
+  m.checkRules.filter((r) => r.measured !== expectedMeasured(r.ruleId)).map((r) => r.ruleId).join(', '));
+ok('結果の範囲・制限がカタログと一致する',
+  m.checks.every((c) => CHECK_RULES[c.ruleId] && c.scope === CHECK_RULES[c.ruleId].scope && c.limit === CHECK_RULES[c.ruleId].limit),
+  m.checks.filter((c) => CHECK_RULES[c.ruleId] && (c.scope !== CHECK_RULES[c.ruleId].scope || c.limit !== CHECK_RULES[c.ruleId].limit)).slice(0, 2).map((c) => c.ruleId).join(', '));
+console.log(`  ルール: ${m.checkRules.map((r) => `${r.ruleId} ${r.measured ? r.count : '未計測'}`).join(' / ')}`);
 
 console.log('\n[4] 未確認を隠さない（0 や空欄にしない）');
 console.log(`  未確認 ${m.unconfirmed.length} 件（全体 ${m.stats.total}）`);

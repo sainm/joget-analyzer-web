@@ -17,7 +17,7 @@
  *  - ページエラーと失敗リクエストはすべて失敗として数える。
  */
 import { chromium } from 'playwright-core';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
@@ -26,6 +26,13 @@ import { createRequire } from 'module';
  * 突き合わせる（ここに文言を書き直すと、モデル側の変更に追いつかない）。 */
 const require = createRequire(import.meta.url);
 const { CAUSE_LABEL } = require('./lib/objectModel.js');
+
+/* [14] の「未計測のルール」の期待値は、解析エンジンからその場で組む
+ * （理由は下の findJwa の直前の注を参照）。 */
+const { analyze } = require('./lib/analyze.js');
+const { correlate } = require('./lib/correlate.js');
+const { scanPluginSource } = require('./lib/pluginScan.js');
+const { buildObjectModel } = require('./lib/objectModel.js');
 
 const CANDIDATES = [
   path.join(os.homedir(), 'Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
@@ -46,6 +53,37 @@ const FIXTURES = path.join(process.cwd(), 'fixtures');
 // 検証対象プロジェクトの親ディレクトリ。既定では FIXTURES と同じになる
 const WORKSPACE = path.dirname(PROJECT);
 const BASE = 'http://localhost:3000';
+
+/* [14] の「未計測のルール」は、モデルが突合の有無から決めた値と突き
+ * 合わせる。画面だけを見た「未計測の行がない」は空洞的に真になる——
+ * 未計測の表示が丸ごと消えても（あるいは計測済みの行にすり替わって
+ * も）緑のまま通ってしまう。実際にその注入をしてみて緑のままだった
+ * ため、期待値は解析エンジンからその場で組む（test-object-model.mjs
+ * と同じ経路。.jwa ファイル名は固定しない）。 */
+const findJwa = (dir) => {
+  const flat = readdirSync(dir).find((f) => f.toLowerCase().endsWith('.jwa'));
+  if (flat) return path.join(dir, flat);
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const nested = findJwa(path.join(dir, e.name));
+    if (nested) return nested;
+  }
+  return null;
+};
+const jwaPath = findJwa(PROJECT);
+if (!jwaPath) {
+  console.error('モデルの再構築に失敗: .jwa が見つかりません', PROJECT);
+  process.exit(1);
+}
+const analyzed = analyze(jwaPath, path.join(process.cwd(), 'data', 'ui-test-model'));
+let correlation = null;
+try {
+  correlation = correlate(analyzed.summary, scanPluginSource(PROJECT));
+} catch (e) {
+  console.log('  （プラグインソースの走査に失敗。突合なしで続行）:', e.message);
+}
+const expectedRules = buildObjectModel({ summary: analyzed.summary, correlation }).checkRules;
+console.log(`  モデル再構築: ルール ${expectedRules.length} 件（未計測 ${expectedRules.filter((r) => !r.measured).length} 件）`);
 
 const errors = [];
 const failedRequests = [];
@@ -348,13 +386,83 @@ try {
   await nav('静的チェック').click();
   await page.waitForTimeout(1000);
   const ck = await page.locator('main').innerText();
-  if (/検出された問題はありません/.test(ck) && !/ルール/.test(ck)) {
-    check('検査結果なしの説明が出る', /根拠が取れる静的検査の範囲では問題が見つかりませんでした/.test(ck));
-  } else {
-    check('適用中のルールが出る', /適用中のルール/.test(ck));
+  /* ルールのサマリは結果の有無に関わらず出る。0 件は「調べたが何も
+   * 出なかった」事実、未計測は「調べられなかった」事実で、両方の区別が
+   * ここでしか示せない。結果が空のアプリでは従来このブロックごと消えて
+   * いたため、「何を調べたか」が確認できない状態だった。 */
+  check('適用中のルールが出る', /適用中のルール/.test(ck));
+  check('絞り込みの説明が出る', /行を選ぶと一覧を絞り込めます/.test(ck));
+  const ruleLis = page.getByTestId('check-rule-rows').locator('li');
+  check('ルールの行が出る', (await ruleLis.count()) > 0);
+  const ruleTexts = await ruleLis.allInnerTexts();
+  /* 行の先頭はルール ID のバッジ（大文字、ハイフンはあってもなくてもよい）。
+   * 「構造」のようにハイフンなしの ID もあるので、ハイフンを必須にすると
+   * 正しい行を落とす。範囲・制限のラベルはモデルの語彙を画面が引く。 */
+  check('ルールの行に ID・範囲・制限が出る',
+    ruleTexts.length > 0 && ruleTexts.every((s) => {
+      const first = s.split('\n')[0].trim();
+      return /^[A-Z]+(-[A-Z]+)?$/.test(first) && s.includes('検査範囲:') && s.includes('解析上の制限:');
+    }));
+  /* 計測済みの行は絞り込みになり、未計測の行はならない。計っていない
+   * ものを選んで空結果を見せることは 0 と未計測の混同になる。
+   * 「未計測の行がないから通る」は空洞的な真なので、モデルが突合の
+   * 有無から決めた計測可否と 1 対 1 で突き合わせる。未計測の表示が
+   * 丸ごと消えても、計測済みの行にすり替わっても紅になる。 */
+  const ruleButtons = page.getByTestId('check-rule-rows').locator('li button[aria-pressed]');
+  check('計測済みのルールが絞り込みになる', (await ruleButtons.count()) > 0);
+  const expectedById = Object.fromEntries(expectedRules.map((r) => [r.ruleId, r]));
+  const rowIds = ruleTexts.map((s) => s.split('\n')[0].trim());
+  check('ルールの行がモデルのサマリと 1 対 1 で対応する',
+    rowIds.length === expectedRules.length && rowIds.every((id) => expectedById[id]),
+    `行 ${rowIds.length} / モデル ${expectedRules.length}`);
+  const badRows = [];
+  for (const [i, id] of rowIds.entries()) {
+    const exp = expectedById[id];
+    if (!exp) { badRows.push(`${id}: モデルに無い`); continue; }
+    const isButton = (await ruleLis.nth(i).locator('button[aria-pressed]').count()) > 0;
+    if (exp.measured !== isButton) badRows.push(`${id}: モデル measured=${exp.measured} / 画面 button=${isButton}`);
+    if (exp.measured) {
+      const m = ruleTexts[i].match(/(\d+)\s*件/);
+      if (!m || Number(m[1]) !== exp.count) badRows.push(`${id}: 件数 ${m ? m[1] : 'なし'} / モデル ${exp.count}`);
+    } else if (!ruleTexts[i].includes('未計測')) {
+      badRows.push(`${id}: 未計測の表示がない`);
+    }
+  }
+  check('計測可否・件数がモデルと一致する', badRows.length === 0, badRows.join(' | '));
+  const checkLis = page.getByTestId('check-rows').locator('li');
+  if ((await checkLis.count()) > 0) {
     check('根拠が出る', /根拠:/.test(ck));
     check('検査範囲が出る', /検査範囲:/.test(ck));
     check('解析上の制限が出る', /解析上の制限:/.test(ck));
+    /* 件数 > 0 の先頭行を選んで絞り込み検証。0 件の行を選ぶと件数一致が
+     * 自明になるので、絞り込みとして意味がない。行の規則数は解析対象に
+     * よって変わるので固有名は書かない。 */
+    let target = null;
+    const btnN = await ruleButtons.count();
+    for (let i = 0; i < btnN; i++) {
+      const b = ruleButtons.nth(i);
+      const m = (await b.innerText()).match(/(\d+)\s*件/);
+      if (m && Number(m[1]) > 0) { target = { b, n: Number(m[1]), text: await b.innerText() }; break; }
+    }
+    if (target) {
+      await target.b.click();
+      await checkLis.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      const filteredN = await checkLis.count();
+      check('ルールで絞り込める', filteredN === target.n && target.n > 0, `行 ${filteredN} / 件数 ${target.n}`);
+      /* 残った行のバッジがすべてそのルール ID。種別の違うものが混ざると
+       * バッジが違い、この件数で検出できる。 */
+      const rid = target.text.split('\n')[0].trim();
+      const badges = await page.getByTestId('check-rows').locator('li span.font-mono').allInnerTexts();
+      check('絞り込み後のバッジがすべてそのルール',
+        badges.length === filteredN && badges.every((s) => s.trim() === rid));
+      check('絞り込み中の行が押下状態になる', await waitForAttr(target.b, 'aria-pressed', 'true'));
+      await target.b.click();
+      check('もう一度押すと絞り込みが外れる', await waitForAttr(target.b, 'aria-pressed', 'false'));
+    } else {
+      check('件数 > 0 のルール行がある', false, 'どのルールも 0 件');
+    }
+  } else {
+    check('検査結果なしの説明が出る', /根拠が取れる静的検査の範囲では問題が見つかりませんでした/.test(ck));
   }
   await shot('A13-checks.png');
 
