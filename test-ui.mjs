@@ -25,7 +25,7 @@ import { createRequire } from 'module';
 /* 成因の語彙は統合オブジェクトモデルが持つ。画面の断言も同じ定義元と
  * 突き合わせる（ここに文言を書き直すと、モデル側の変更に追いつかない）。 */
 const require = createRequire(import.meta.url);
-const { CAUSE_LABEL } = require('./lib/objectModel.js');
+const { CAUSE_LABEL, CAUSE_DESC } = require('./lib/objectModel.js');
 
 /* [14] の「未計測のルール」の期待値は、解析エンジンからその場で組む
  * （理由は下の findJwa の直前の注を参照）。 */
@@ -82,8 +82,9 @@ try {
 } catch (e) {
   console.log('  （プラグインソースの走査に失敗。突合なしで続行）:', e.message);
 }
-const expectedRules = buildObjectModel({ summary: analyzed.summary, correlation }).checkRules;
-console.log(`  モデル再構築: ルール ${expectedRules.length} 件（未計測 ${expectedRules.filter((r) => !r.measured).length} 件）`);
+const expectedModel = buildObjectModel({ summary: analyzed.summary, correlation });
+const expectedRules = expectedModel.checkRules;
+console.log(`  モデル再構築: ルール ${expectedRules.length} 件（未計測 ${expectedRules.filter((r) => !r.measured).length} 件）/ 未確認 ${expectedModel.unconfirmed.length} 件`);
 
 const errors = [];
 const failedRequests = [];
@@ -199,6 +200,32 @@ try {
   check('命名規約の注記がある', /app_fd_/.test(ov) && /命名規約/.test(ov));
   check('解析の限界が明示されている', ov.includes('実データベースのメタデータ'));
   check('未検出を「未計測」としている', ov.includes('未計測'));
+  /* 未確認の内訳（成因）。画面に「行がある」だけでは、件数がずれても
+   * 順序が入れ替わっても通るので、モデルの内訳と 1 対 1 で突き合わせる。
+   * 行の末尾は件数（説明文に数字が混じっても末尾の数字を拾う）。 */
+  if (expectedModel.causeSummary.length > 0) {
+    const causeRows = page.getByTestId('cause-summary-rows').locator('li');
+    await causeRows.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    check('概要に未確認の内訳が出る', (await causeRows.count()) === expectedModel.causeSummary.length,
+      `行 ${await causeRows.count()} / モデル ${expectedModel.causeSummary.length}`);
+    const rowTexts = await causeRows.allInnerTexts();
+    const actualCounts = rowTexts.map((s) => Number((s.match(/(\d+)\s*$/) || [])[1]));
+    const expectedCounts = expectedModel.causeSummary.map((c) => c.count);
+    check('内訳の件数と順序がモデルと一致する',
+      JSON.stringify(actualCounts) === JSON.stringify(expectedCounts),
+      `画面 ${actualCounts.join(',')} / モデル ${expectedCounts.join(',')}`);
+    const rowBadges = await page.getByTestId('cause-summary-rows').locator('li [title]').count();
+    /* バッジの数は「画面の行数」ではなく「モデルの行数」と比べる。
+     * 画面の行数と比べると、内訳が丸ごと消えたときに 0 === 0 で
+     * 空洞的に真になる（実際に U4 注入で緑のまま通った）。 */
+    check('内訳の各行に成因バッジがある', rowBadges === expectedModel.causeSummary.length,
+      `バッジ ${rowBadges} / モデル ${expectedModel.causeSummary.length}`);
+    const descHits = expectedModel.causeSummary.filter((c) => rowTexts.some((s) => s.includes(CAUSE_DESC[c.cause]))).length;
+    check('内訳の各行に成因の説明がある', descHits === expectedModel.causeSummary.length,
+      `${descHits} / ${expectedModel.causeSummary.length}`);
+  } else {
+    console.log('  （未確認 0 件のため内訳の表示はスキップ）');
+  }
 
   console.log('\n[8] 解析品質の内容アサーション');
   await nav('解析品質').click();

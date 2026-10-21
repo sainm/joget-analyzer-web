@@ -63,6 +63,18 @@ const CAUSE_STYLE = {
 };
 
 /**
+ * 積み上げバー用の塗り色。バッジと同じ色相で、どの区間がどの成因かを
+ * 色だけに頼らず下の行（文字 + 件数）と対応させる。
+ * 色は表示の都合なので語彙（ラベル・説明）とは別に、ここに置く。
+ */
+export const CAUSE_FILL = {
+  'definition-gap': 'bg-amber-400',
+  'unresolved-ref': 'bg-rose-400',
+  'derived': 'bg-sky-400',
+  'no-source': 'bg-ink-300',
+};
+
+/**
  * 未確認の成因バッジ。
  * 状態（StatusTag）が「どこまで読めたか」、こちらは「なぜ確定できなかったか」。
  * 色に加えて必ず文字を出し、正式な説明は title に置く。

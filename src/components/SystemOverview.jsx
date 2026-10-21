@@ -1,10 +1,10 @@
 import React from 'react';
 import { t } from '../i18n.js';
-import { OBJ, objTypeLabel } from '../lib/objectModel.js';
+import { OBJ, objTypeLabel, CAUSE_LABEL, CAUSE_DESC } from '../lib/objectModel.js';
 import { menuChart } from '../lib/mermaidGraphs.js';
 import Mermaid from './Mermaid.jsx';
 import { PageHead } from './Shell.jsx';
-import { StatusTag, TypeTag, EmptyNote } from './Common.jsx';
+import { StatusTag, TypeTag, EmptyNote, CauseTag, CAUSE_FILL } from './Common.jsx';
 import { KeyValue, levelLabel, levelTone } from './ObjectExplorer.jsx';
 
 /**
@@ -32,6 +32,9 @@ export default function SystemOverview({ model, summary, onNavigate, onSelectObj
   const app = summary?.app || {};
   const errs = model.stats.checks.error;
   const warns = model.stats.checks.warn;
+  // 積み上げバーの分母。未確認の総数と一致する（成因の無い未確認は無い）が、
+  // ズレてもバーが破綻しないよう内訳の合計を分母にする。
+  const causeTotal = model.causeSummary.reduce((s, c) => s + c.count, 0);
 
   return (
     <>
@@ -183,6 +186,38 @@ export default function SystemOverview({ model, summary, onNavigate, onSelectObj
         </Section>
 
         <Section title={t('ov.limitations')}>
+          {/* 未確認の内訳（成因）。「何が分からないか」の量を先に示し、
+              箇条書きの質的説明が続く。0 件の成因はモデルが落としている
+              （成因は未確認の内訳で、未計測の概念を持たない）。 */}
+          {model.causeSummary.length > 0 && (
+            <div className="mb-3 rounded-md border border-ink-200 bg-ink-50 p-2.5" data-testid="cause-summary">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-semibold text-ink-700">未確認の内訳（なぜ確定できなかったか）</span>
+                <button onClick={() => onNavigate({ key: 'quality' })} className="shrink-0 text-[11px] text-brand-600 hover:underline">
+                  内訳を開く
+                </button>
+              </div>
+              <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-ink-200">
+                {model.causeSummary.map((c) => (
+                  <div
+                    key={c.cause}
+                    className={`h-full ${CAUSE_FILL[c.cause] || 'bg-ink-300'}`}
+                    style={{ width: `${(c.count / causeTotal) * 100}%` }}
+                    title={`${CAUSE_LABEL[c.cause]}: ${c.count} 件`}
+                  />
+                ))}
+              </div>
+              <ul className="mt-2 space-y-0.5" data-testid="cause-summary-rows">
+                {model.causeSummary.map((c) => (
+                  <li key={c.cause} className="flex items-center gap-1.5 text-[11px]">
+                    <CauseTag cause={c.cause} />
+                    <span className="min-w-0 flex-1 truncate text-ink-400">{CAUSE_DESC[c.cause]}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-ink-700">{c.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <ul className="space-y-1.5 text-[12px] leading-relaxed text-ink-600">
             <li>・実データベースのメタデータ参照は行っていません。テーブルは命名規約からの導出です。</li>
             <li>・実行時に組み立てられるクエリ、変数、プラグインの動的挙動は静的解析では確認できません。</li>

@@ -766,6 +766,27 @@ ok('成因の語彙が順序・ラベル・説明で網羅されている',
 const causeTotals = CAUSE_ORDER.map((cz) => `${CAUSE_LABEL[cz]} ${Object.entries(modelCause).filter(([kk]) => kk.endsWith(`|${cz}`)).reduce((s, [, n]) => s + n, 0)}`);
 console.log(`  成因: ${causeTotals.join(' / ')}`);
 
+/* 概要ページ用の内訳（プロジェクト全体）。品質ページは絞り込み範囲の
+ * 内訳を画面側で数えるが、全体の内訳はモデルが組む。同じ数え方を
+ * 二箇所に書くと片方だけがずれるため、生データの再計数（rawCause を
+ * 成因ごとに合算）と突き合わせる。 */
+const rawCauseTotals = {};
+for (const [kk, n] of Object.entries(rawCause)) {
+  const cz = kk.split('|')[1];
+  rawCauseTotals[cz] = (rawCauseTotals[cz] || 0) + n;
+}
+const rawNonZero = CAUSE_ORDER.filter((cz) => rawCauseTotals[cz]);
+ok('内訳の項目が生データの非零成因と同じ',
+  JSON.stringify(m.causeSummary.map((c) => c.cause)) === JSON.stringify(rawNonZero),
+  `内訳 ${m.causeSummary.map((c) => c.cause).join(',')} / 生 ${rawNonZero.join(',')}`);
+ok('内訳の件数が生データの再計数と一致する',
+  m.causeSummary.every((c) => c.count === rawCauseTotals[c.cause])
+    && m.causeSummary.reduce((s, c) => s + c.count, 0) === Object.values(rawCauseTotals).reduce((a, b) => a + b, 0),
+  m.causeSummary.map((c) => `${c.cause} ${c.count}/${rawCauseTotals[c.cause]}`).join(' / '));
+ok('内訳の合計が未確認の件数と一致する',
+  m.causeSummary.reduce((s, c) => s + c.count, 0) === m.unconfirmed.length,
+  `内訳計 ${m.causeSummary.reduce((s, c) => s + c.count, 0)} / 未確認 ${m.unconfirmed.length}`);
+
 for (const c of chapters) {
   const hit = (byChapter.get(c.title) || []).length;
   console.log(`    ${hit ? ' ' : '!'} ${c.title} ← ${hit} オブジェクト`);
