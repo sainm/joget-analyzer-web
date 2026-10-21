@@ -488,6 +488,39 @@ try {
     } else {
       check('件数 > 0 のルール行がある', false, 'どのルールも 0 件');
     }
+    /* 0 件のルールを選んだときの空表示。「調べたが 0 件」と「調べられな
+     * かった（未計測）」は意味が逆なので、取り違えないことを見る。
+     * 0 件のルールは解析対象によっては無い（rfq には無い）ため、
+     * モデルに無ければスキップする（素材固有名は書かない）。 */
+    const zeroRule = expectedRules.find((r) => r.measured && r.count === 0);
+    if (zeroRule) {
+      const zeroBtn = page.getByTestId('check-rule-rows').locator('li', { hasText: zeroRule.ruleId }).locator('button[aria-pressed]').first();
+      await zeroBtn.click();
+      const emptyBox = page.getByTestId('check-empty');
+      await emptyBox.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      const emptyTxt = (await emptyBox.count()) > 0 ? await emptyBox.innerText() : '';
+      check('0 件のルールで「調べた結果 0 件」と出る', emptyTxt.includes('調べた結果 0 件でした'));
+      check('0 件を未計測と言わない（検査範囲つき）', emptyTxt.includes('未計測ではありません') && emptyTxt.includes('検査範囲:'));
+      await zeroBtn.click();
+      await page.waitForTimeout(300);
+    } else {
+      console.log('  （計測済みで 0 件のルールが無いため 0 件表示はスキップ）');
+    }
+    /* 件数 > 0 のルールを選び、検索語で 0 行にする。条件で隠れているだけの
+     * ときに「0 件」と言うと嘘になるので、件数を出して条件を変えるよう
+     * 促す文言になっていることを見る。 */
+    if (target) {
+      await target.b.click();
+      const searchBox = page.locator('main input[placeholder*="ルール・文言・対象で検索"]');
+      await searchBox.fill('ZZZ_MATCH_NOTHING');
+      await page.waitForTimeout(400);
+      const hiddenTxt = (await page.getByTestId('check-empty').count()) > 0
+        ? await page.getByTestId('check-empty').innerText() : '';
+      check('隠れているだけのときに 0 件と言わない', hiddenTxt.includes(`には ${target.n} 件あります`), hiddenTxt.slice(0, 60));
+      await searchBox.fill('');
+      await target.b.click();
+      await page.waitForTimeout(300);
+    }
   } else {
     check('検査結果なしの説明が出る', /根拠が取れる静的検査の範囲では問題が見つかりませんでした/.test(ck));
   }

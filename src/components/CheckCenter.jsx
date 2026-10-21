@@ -47,6 +47,20 @@ export default function CheckCenter({ model, onSelectObject }) {
     info: model.stats.checks.info,
   };
 
+  /* 空表示の文言は「なぜ 0 行なのか」で変える。
+   *
+   * ルールで絞っていて、そのルールが 0 件——これは「調べたが何も
+   * 出なかった」であり、未計測（調べられなかった）ではない。同じ
+   * 「0 行」でも意味が逆なので、ここで言い分ける。
+   * 一方、そのルールに結果はあるのにレベルや検索語で隠れているだけの
+   * ときに「0 件」と言うと嘘になる。件数を出して条件を変えるよう促す。 */
+  const activeRule = ruleId === 'all' ? null : model.checkRules.find((r) => r.ruleId === ruleId) || null;
+  const emptyMessage = !activeRule
+    ? 'この条件に該当する検査結果はありません。'
+    : activeRule.count === 0
+      ? `「${activeRule.rule}」は調べた結果 0 件でした（未計測ではありません）。検査範囲: ${activeRule.scope}`
+      : `この条件に該当する検査結果はありません（「${activeRule.rule}」には ${activeRule.count} 件あります）。重大度か検索語を変えてください。`;
+
   return (
     <>
       <PageHead
@@ -127,7 +141,9 @@ export default function CheckCenter({ model, onSelectObject }) {
           </div>
 
           {rows.length === 0 ? (
-            <EmptyNote>この条件に該当する検査結果はありません。</EmptyNote>
+            <div data-testid="check-empty">
+              <EmptyNote>{emptyMessage}</EmptyNote>
+            </div>
           ) : (
             <ul className="space-y-2" data-testid="check-rows">
               {rows.map((c, i) => (
