@@ -33,6 +33,25 @@ const DATASETS = [
     jwa: path.join(FIXTURES, 'enhanced-json-api-main', 'APP_EnhancedJSONAPISampleApp-1-20241101165150.jwa'),
     plugin: path.join(FIXTURES, 'enhanced-json-api-main'),
   },
+  /* ER 図の予約語（PK / FK / UK）と、識別子として使えない実体名。
+   * "fk" は外部キーとしてありふれた項目ID で、実素材
+   * （jogetoss/emote-form-element）で ER 図が全体として出なくなる事故が
+   * 起きた。同梱フィクスチャにはこの形が無いので、ここで作って確認する。
+   * 予約語は 3 語すべて、大文字・小文字の両方を入れる。 */
+  {
+    name: 'ER 予約語と実体名',
+    synthetic: {
+      tableModel: {
+        app_fd_reserved: { all_fields: ['pk', 'fk', 'uk', 'PK', 'FK', 'UK', 'c_name'] },
+        app_fd_2nd: { all_fields: ['id', 'fk', 'dateCreated'] },
+        app_fd_9lives: { all_fields: ['id'] },
+      },
+      relations: [
+        { from: 'app_fd_reserved', to: 'app_fd_2nd', field: 'fk', desc: '予約語の列で接続' },
+      ],
+      data: {},
+    },
+  },
 ];
 
 let failed = 0; // 図の単位での失敗
@@ -42,7 +61,10 @@ const skipped = [];
 for (const ds of DATASETS) {
   let summary;
   let manifest = null;
-  try {
+  if (ds.synthetic) {
+    // 合成データ（解析を介さない）。ER 図の予約語など、同梱フィクスチャに無い形を確認する
+    summary = ds.synthetic;
+  } else try {
     const outDir = path.join(OUT, ds.name.replace(/\W+/g, '-'));
     mkdirSync(outDir, { recursive: true });
     summary = analyze(ds.jwa, outDir).summary;

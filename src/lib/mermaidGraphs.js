@@ -68,6 +68,24 @@ export function flowChart(xpdl) {
 }
 
 /* ── 2. データモデル ER 図 ──────────────────────────────────────── */
+/* ER 図の属性名では PK / FK / UK が「主キー・外部キー・一意キー」の指定として
+ * 予約されている（mermaid の lexer が大小文字を無視してマッチさせる）。
+ * フォームの項目ID がこの 3 語と一致するとパースエラーになり、
+ * **図そのものが出なくなる**。"fk" は外部キーとしてありふれた名前なので、
+ * 実素材（emote-form-element）で実際に発生した。末尾に _ を付けて回避する。
+ * （引用符で囲んでも属性名位置では受け取らない。接尾辞が確実。） */
+const ER_RESERVED = /^(pk|fk|uk)$/i;
+const erAttr = (c) => {
+  const safe = String(c).replace(/[^\w]/g, '_');
+  return ER_RESERVED.test(safe) ? `${safe}_` : safe;
+};
+/* 実体名は予約語と衝突しないが、app_fd_ を外した結果が識別子として使えない
+ * （空・数字始まり）と構文エラーになる。 */
+const erEntity = (t) => {
+  const alias = String(t).replace(/^app_fd_/, '').replace(/[^\w]/g, '_');
+  return /^[A-Za-z_]/.test(alias) ? alias : `t_${alias}`;
+};
+
 export function erChart(summary) {
   // テーブルモデルを優先：フォーム定義から導出するため、.jwa がサンプルデータを
   // エクスポートしているかどうかに依存しない
@@ -81,12 +99,12 @@ export function erChart(summary) {
   const lines = ['erDiagram'];
   for (const t of tables) {
     const info = model[t];
-    const alias = t.replace(/^app_fd_/, '');
+    const alias = erEntity(t);
     const cols = info.all_fields || info.fields || [];
     const fields = cols.slice(0, 14);
     lines.push(`  ${alias} {`);
     for (const f of fields) {
-      lines.push(`    string ${String(f).replace(/[^\w]/g, '_')}`);
+      lines.push(`    string ${erAttr(f)}`);
     }
     const hidden = cols.length - fields.length;
     if (hidden > 0) lines.push(`    string and_${hidden}_more_fields`);
@@ -94,8 +112,8 @@ export function erChart(summary) {
     lines.push('');
   }
   for (const r of summary.relations || []) {
-    const a = String(r.from).replace(/^app_fd_/, '');
-    const b = String(r.to).replace(/^app_fd_/, '');
+    const a = erEntity(r.from);
+    const b = erEntity(r.to);
     if (!a || !b || a === b) continue;
     lines.push(`  ${a} ||--o{ ${b} : "${esc(r.field)}"`);
   }
