@@ -925,5 +925,50 @@ for (const c of chapters) {
 const emptyChapterTitles = chapters.filter((c) => (byChapter.get(c.title) || []).length === 0).map((c) => c.title);
 console.log(`  オブジェクトが紐づかない章（内容が空なのは想定内）: ${emptyChapterTitles.length ? emptyChapterTitles.join(' / ') : 'なし'}`);
 
+/* ── 合成: プラットフォームが自動で書く属性を誤報しないこと ──────────
+ * 実素材 41 本では CFG-DECL 23 件中 13 件がこの誤報だった（datalist_type /
+ * link-css-display-type / id）。同梱フィクスチャにこの形が無いので、
+ * 期待値を自分で組んだ入力で確かめる。入力は最小限にし、
+ * 「平台の証拠がある属性は報らない・本当に無効な属性は報る」の両方を見る。 */
+{
+  const TEXT = 'org.joget.apps.form.lib.TextField';       // builtin
+  const MINE = 'org.joget.marketplace.MyBinder';           // ソースあり
+  const synthSummary = {
+    plugin_refs: {
+      builtin: { [TEXT]: { occurrences: 1, usedIn: ['フォーム f'] } },
+      marketplace: { [MINE]: { occurrences: 1, usedIn: ['フォーム f'] } },
+    },
+    plugin_usages: [
+      // 平台クラスの使い方にも現れる → 平台が書く属性
+      { className: TEXT, config: { id: 'x', role: 'action' } },
+      // 自分のプラグインの使い方。role / datalist_type は平台側にも出る
+      { className: MINE, config: { role: 'action', datalist_type: 'action', linkCss: 'btn', trulyDead: 'v' } },
+    ],
+  };
+  const synthManifest = {
+    components: [{
+      class: MINE,
+      file: 'MyBinder.java',
+      methodCount: 1,
+      methods: [],
+      readKeys: [],
+      configProperties: [{ name: 'label' }],
+    }],
+    utilities: [],
+    activators: [],
+  };
+  const sc = correlate(synthSummary, synthManifest);
+  const deadKeys = (sc.deadConfig || []).flatMap((d) => d.keys);
+  ok('平台クラスにも現れる属性を無効な設定と報らない',
+    !deadKeys.some((k) => k === 'id' || k === 'role'),
+    `deadConfig: ${JSON.stringify(deadKeys)}`);
+  ok('datalist の役割記号を無効な設定と報らない',
+    !deadKeys.some((k) => k === 'datalist_type' || k === 'link-css-display-type'),
+    `deadConfig: ${JSON.stringify(deadKeys)}`);
+  ok('平台の証拠が無い未宣言属性は報る（誤判の回避ではない）',
+    deadKeys.includes('trulyDead'),
+    `deadConfig: ${JSON.stringify(deadKeys)}`);
+}
+
 console.log(`\n結果: ${failed ? `不合格 ${failed} 件` : '通過'}`);
 process.exit(failed ? 1 : 0);
